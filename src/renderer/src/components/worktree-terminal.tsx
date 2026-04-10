@@ -58,12 +58,15 @@ const getTerminalTheme = () =>
 interface WorktreeTerminalProps {
   active: boolean
   cwd: string
+  initialCommand?: string
+  /** When set, reattach to this existing tmux session instead of creating a new one. */
+  tmuxSessionName?: string | null
   onNewTab?: () => void
   onCloseTab?: () => void
-  onSessionCreated?: (sessionId: string, pid: number) => void
+  onSessionCreated?: (sessionId: string, pid: number, tmuxSessionName: string) => void
 }
 
-export function WorktreeTerminal({ active, cwd, onNewTab, onCloseTab, onSessionCreated }: WorktreeTerminalProps) {
+export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName, onNewTab, onCloseTab, onSessionCreated }: WorktreeTerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -110,13 +113,14 @@ export function WorktreeTerminal({ active, cwd, onNewTab, onCloseTab, onSessionC
         return true
       }
 
-      if (event.key === 't') {
-        onNewTabRef.current?.()
-        return false
-      }
-
-      if (event.key === 'w') {
-        onCloseTabRef.current?.()
+      // Let these Cmd shortcuts bubble up to the app-level hotkey handler
+      if (
+        event.key === 't' ||
+        event.key === 'w' ||
+        event.key === 'k' ||
+        (event.shiftKey && event.key === 'c') ||
+        (event.key >= '1' && event.key <= '9')
+      ) {
         return false
       }
 
@@ -188,12 +192,14 @@ export function WorktreeTerminal({ active, cwd, onNewTab, onCloseTab, onSessionC
       }
     })
 
-    void electree.terminal
-      .createSession({
-        cwd,
-        cols: terminal.cols,
-        rows: terminal.rows
-      })
+    // Reattach to an existing tmux session or create a new one.
+    const sessionPromise = tmuxSessionName
+      ? electree.terminal
+          .attachSession({ tmuxSessionName, cols: terminal.cols, rows: terminal.rows })
+          .then((r) => ({ ...r, tmuxSessionName }))
+      : electree.terminal.createSession({ cwd, cols: terminal.cols, rows: terminal.rows })
+
+    void sessionPromise
       .then((result) => {
         if (disposed) {
           return
@@ -204,7 +210,11 @@ export function WorktreeTerminal({ active, cwd, onNewTab, onCloseTab, onSessionC
         if (activeRef.current) {
           void electree.terminal.setActiveSession(result.sessionId)
         }
-        onSessionCreatedRef.current?.(result.sessionId, result.pid)
+        onSessionCreatedRef.current?.(result.sessionId, result.pid, result.tmuxSessionName)
+
+        if (!tmuxSessionName && initialCommand) {
+          void electree.terminal.write(result.sessionId, initialCommand + '\n')
+        }
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : 'No se pudo abrir la terminal.'
@@ -222,7 +232,7 @@ export function WorktreeTerminal({ active, cwd, onNewTab, onCloseTab, onSessionC
       terminalInputDisposable.dispose()
 
       if (sessionId) {
-        void electree.terminal.close(sessionId)
+        void electree.terminal.detach(sessionId)
       }
 
       terminal.dispose()
@@ -231,7 +241,7 @@ export function WorktreeTerminal({ active, cwd, onNewTab, onCloseTab, onSessionC
       fitAddonRef.current = null
       sessionIdRef.current = null
     }
-  }, [cwd])
+  }, [cwd, initialCommand, tmuxSessionName])
 
   useEffect(() => {
     if (!active) {

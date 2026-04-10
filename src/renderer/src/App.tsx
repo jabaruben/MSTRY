@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useHotkeys } from '@tanstack/react-hotkeys'
 import {
   VscAdd,
   VscCheck,
@@ -16,7 +17,8 @@ import {
   VscTrash
 } from 'react-icons/vsc'
 
-import type { ClaudeSessionInfo, Project, WorkspaceItem } from '../../shared/contracts'
+import type { ClaudeSessionInfo, PersistedTab, Project, WorkspaceItem } from '../../shared/contracts'
+import { CommandPalette, type CommandItem } from './components/command-palette'
 import { SettingsPanel } from './components/settings-panel'
 import { WorktreeTerminal } from './components/worktree-terminal'
 import { Button } from './components/ui/button'
@@ -28,14 +30,27 @@ import { cn } from './lib/utils'
 interface TerminalTab {
   id: string
   workspacePath: string
+  initialCommand?: string
+  tmuxSessionName: string | null
   sessionId: string | null
   pid: number | null
   processName: string | null
 }
 
-const createTab = (workspacePath: string): TerminalTab => ({
+const createTab = (workspacePath: string, initialCommand?: string): TerminalTab => ({
   id: crypto.randomUUID(),
   workspacePath,
+  initialCommand,
+  tmuxSessionName: null,
+  sessionId: null,
+  pid: null,
+  processName: null
+})
+
+const createRestoredTab = (persisted: PersistedTab): TerminalTab => ({
+  id: persisted.id,
+  workspacePath: persisted.workspacePath,
+  tmuxSessionName: persisted.tmuxSessionName,
   sessionId: null,
   pid: null,
   processName: null
@@ -103,6 +118,7 @@ export function App() {
   const [worktreesCollapsed, setWorktreesCollapsed] = useState(false)
   const [draftWorktreeName, setDraftWorktreeName] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(340)
   const isResizing = useRef(false)
 
@@ -150,13 +166,18 @@ export function App() {
     mutationFn: (project: Project) => getElectronBridge().workspace.removeProject(project.rootPath),
     onSuccess: (config, removedProject) => {
       queryClient.setQueryData(['app-config'], config)
-      setTabs((current) =>
-        current.filter((tab) => {
-          if (tab.workspacePath === removedProject.rootPath) return false
-          if (removedProject.worktreeRoot && tab.workspacePath.startsWith(removedProject.worktreeRoot)) return false
-          return true
+      const electree = getElectronBridge()
+      setTabs((current) => {
+        const removed = current.filter((tab) => {
+          if (tab.workspacePath === removedProject.rootPath) return true
+          if (removedProject.worktreeRoot && tab.workspacePath.startsWith(removedProject.worktreeRoot)) return true
+          return false
         })
-      )
+        for (const tab of removed) {
+          if (tab.tmuxSessionName) void electree.terminal.destroySession(tab.tmuxSessionName)
+        }
+        return current.filter((tab) => !removed.includes(tab))
+      })
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
     }
   })
@@ -177,7 +198,15 @@ export function App() {
         setSelectedWorkspacePath(null)
       }
 
-      setTabs((current) => current.filter((tab) => tab.workspacePath !== workspacePath))
+      const electree = getElectronBridge()
+      setTabs((current) => {
+        for (const tab of current) {
+          if (tab.workspacePath === workspacePath && tab.tmuxSessionName) {
+            void electree.terminal.destroySession(tab.tmuxSessionName)
+          }
+        }
+        return current.filter((tab) => tab.workspacePath !== workspacePath)
+      })
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
     }
   })
@@ -222,6 +251,7 @@ export function App() {
   }, [])
 
   const [claudeSessions, setClaudeSessions] = useState<ClaudeSessionInfo[]>([])
+  const tabsRestoredRef = useRef(false)
 
   useEffect(() => {
     const electree = getElectronBridge()
@@ -229,11 +259,58 @@ export function App() {
     return off
   }, [])
 
-  const handleSessionCreated = useCallback((tabId: string, sessionId: string, pid: number) => {
-    setTabs((current) =>
-      current.map((tab) => (tab.id === tabId ? { ...tab, sessionId, pid } : tab))
-    )
+  // Restore persisted tabs on startup.
+  useEffect(() => {
+    if (tabsRestoredRef.current) return
+    tabsRestoredRef.current = true
+
+    const electree = getElectronBridge()
+    void (async () => {
+      const [persisted, aliveSessions] = await Promise.all([
+        electree.terminal.getPersistedTabs(),
+        electree.terminal.listTmuxSessions()
+      ])
+
+      const aliveSet = new Set(aliveSessions)
+      const validTabs = persisted.tabs.filter((t) => aliveSet.has(t.tmuxSessionName))
+
+      if (validTabs.length > 0) {
+        setTabs(validTabs.map(createRestoredTab))
+        setActiveTabId(persisted.activeTabId)
+      }
+    })()
   }, [])
+
+  // Persist tabs whenever they change.
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!tabsRestoredRef.current) return
+    const persistable = tabs.filter((t) => t.tmuxSessionName)
+    if (persistable.length === 0 && tabs.length > 0) return
+
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+    persistTimerRef.current = setTimeout(() => {
+      void getElectronBridge().terminal.persistTabs({
+        tabs: persistable.map((t) => ({
+          id: t.id,
+          workspacePath: t.workspacePath,
+          tmuxSessionName: t.tmuxSessionName!
+        })),
+        activeTabId
+      })
+    }, 500)
+  }, [tabs, activeTabId])
+
+  const handleSessionCreated = useCallback(
+    (tabId: string, sessionId: string, pid: number, tmuxSessionName: string) => {
+      setTabs((current) =>
+        current.map((tab) =>
+          tab.id === tabId ? { ...tab, sessionId, pid, tmuxSessionName } : tab
+        )
+      )
+    },
+    []
+  )
 
   const currentTabs = useMemo(
     () => (selectedWorkspacePath ? tabs.filter((tab) => tab.workspacePath === selectedWorkspacePath) : []),
@@ -249,6 +326,25 @@ export function App() {
     setActiveTabId((current) => ({ ...current, [selectedWorkspacePath]: tab.id }))
   }, [selectedWorkspacePath])
 
+  const handleNewClaudeTab = useCallback(() => {
+    if (!selectedWorkspacePath) return
+    const tab = createTab(selectedWorkspacePath, 'claude --dangerously-skip-permissions')
+    setTabs((current) => [...current, tab])
+    setActiveTabId((current) => ({ ...current, [selectedWorkspacePath]: tab.id }))
+  }, [selectedWorkspacePath])
+
+  const handleSwitchTab = useCallback(
+    (index: number) => {
+      if (!selectedWorkspacePath) return
+      const workspaceTabs = tabs.filter((tab) => tab.workspacePath === selectedWorkspacePath)
+      const tab = workspaceTabs[index]
+      if (tab) {
+        setActiveTabId((current) => ({ ...current, [selectedWorkspacePath]: tab.id }))
+      }
+    },
+    [selectedWorkspacePath, tabs]
+  )
+
   const handleCloseTab = useCallback(
     (tabId: string) => {
       if (!selectedWorkspacePath) return
@@ -256,7 +352,14 @@ export function App() {
       const workspaceTabs = tabs.filter((tab) => tab.workspacePath === selectedWorkspacePath)
       if (workspaceTabs.length <= 1) return
 
+      const closingTab = workspaceTabs.find((tab) => tab.id === tabId)
       const closingIndex = workspaceTabs.findIndex((tab) => tab.id === tabId)
+
+      // Kill the tmux session — the user intentionally closed the tab.
+      if (closingTab?.tmuxSessionName) {
+        void getElectronBridge().terminal.destroySession(closingTab.tmuxSessionName)
+      }
+
       setTabs((current) => current.filter((tab) => tab.id !== tabId))
 
       if (currentActiveTabId === tabId) {
@@ -321,6 +424,94 @@ export function App() {
     queryClient.invalidateQueries({ queryKey: ['app-config'] })
     queryClient.invalidateQueries({ queryKey: ['workspaces'] })
   }
+
+  const commands = useMemo<CommandItem[]>(
+    () => [
+      {
+        id: 'new-tab',
+        label: 'New Terminal',
+        shortcut: '⌘T',
+        icon: <VscAdd className="size-4" />,
+        onSelect: () => handleNewTab()
+      },
+      {
+        id: 'new-claude-tab',
+        label: 'New Claude (skip permissions)',
+        shortcut: '⌘⇧C',
+        icon: <span className="text-[10px] font-bold">C</span>,
+        onSelect: () => handleNewClaudeTab()
+      },
+      {
+        id: 'close-tab',
+        label: 'Close Terminal',
+        shortcut: '⌘W',
+        icon: <VscClose className="size-4" />,
+        onSelect: () => {
+          if (currentActiveTabId) handleCloseTab(currentActiveTabId)
+        }
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        shortcut: '⌘,',
+        icon: <VscSettingsGear className="size-4" />,
+        onSelect: () => setSettingsOpen(true)
+      },
+      {
+        id: 'refresh',
+        label: 'Refresh',
+        shortcut: '⌘R',
+        icon: <VscRefresh className="size-4" />,
+        onSelect: handleRefresh
+      },
+      {
+        id: 'new-worktree',
+        label: 'New Worktree',
+        icon: <VscSourceControl className="size-4" />,
+        onSelect: () => setDraftWorktreeName((c) => (c !== null ? null : generateRandomWorktreeName()))
+      },
+      {
+        id: 'open-folder',
+        label: 'Open Folder',
+        icon: <VscFolderOpened className="size-4" />,
+        onSelect: () => void pickProjectMutation.mutateAsync()
+      }
+    ],
+    [handleNewTab, handleNewClaudeTab, handleCloseTab, currentActiveTabId, handleRefresh, pickProjectMutation]
+  )
+
+  useHotkeys(
+    [
+      {
+        hotkey: 'Mod+T',
+        callback: () => handleNewTab()
+      },
+      {
+        hotkey: 'Mod+W',
+        callback: () => {
+          if (currentActiveTabId) handleCloseTab(currentActiveTabId)
+        }
+      },
+      {
+        hotkey: 'Mod+K',
+        callback: () => setCommandPaletteOpen((open) => !open)
+      },
+      {
+        hotkey: 'Mod+Shift+C',
+        callback: () => handleNewClaudeTab()
+      },
+      { hotkey: 'Mod+1', callback: () => handleSwitchTab(0) },
+      { hotkey: 'Mod+2', callback: () => handleSwitchTab(1) },
+      { hotkey: 'Mod+3', callback: () => handleSwitchTab(2) },
+      { hotkey: 'Mod+4', callback: () => handleSwitchTab(3) },
+      { hotkey: 'Mod+5', callback: () => handleSwitchTab(4) },
+      { hotkey: 'Mod+6', callback: () => handleSwitchTab(5) },
+      { hotkey: 'Mod+7', callback: () => handleSwitchTab(6) },
+      { hotkey: 'Mod+8', callback: () => handleSwitchTab(7) },
+      { hotkey: 'Mod+9', callback: () => handleSwitchTab(8) }
+    ],
+    { preventDefault: true }
+  )
 
   const handleCreateWorktree = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -621,7 +812,6 @@ export function App() {
                   ? claudeSessions.find((s) => s.shellPid === tab.pid) ?? null
                   : null
                 const isClaude = claudeInfo !== null || isClaudeProcess(tab.processName)
-                const tabSuffix = currentTabs.length > 1 ? ` (${index + 1})` : ''
 
                 return (
                   <button
@@ -632,12 +822,17 @@ export function App() {
                       setActiveTabId((current) => ({ ...current, [selectedWorkspacePath]: tab.id }))
                     }
                     className={cn(
-                      'no-drag group flex h-8 max-w-[200px] items-center gap-1.5 rounded-md px-3 text-xs',
+                      'no-drag group relative flex h-8 max-w-[200px] items-center gap-1.5 rounded-md px-3 text-xs',
                       isActive
                         ? 'bg-item-active text-foreground'
                         : 'text-muted hover:bg-item-hover hover:text-secondary'
                     )}
                   >
+                    {currentTabs.length > 1 && index < 9 ? (
+                      <span className="absolute -top-1 -right-1 flex size-3.5 items-center justify-center rounded bg-overlay font-mono text-[9px] text-muted">
+                        {index + 1}
+                      </span>
+                    ) : null}
                     {isClaude ? (
                       <span
                         className={cn(
@@ -653,8 +848,8 @@ export function App() {
                     )}
                     <span className="truncate">
                       {isClaude
-                        ? `${claudeInfo?.name ?? claudeInfo?.prompt ?? 'Claude'}${tabSuffix}`
-                        : `${selectedWorkspace?.branch ?? selectedWorkspace?.name ?? 'Terminal'}${tabSuffix}`}
+                        ? (claudeInfo?.name ?? claudeInfo?.prompt ?? 'Claude')
+                        : (selectedWorkspace?.branch ?? selectedWorkspace?.name ?? 'Terminal')}
                     </span>
                     {isClaude && claudeInfo ? (
                       <span
@@ -702,8 +897,16 @@ export function App() {
               ) : null}
             </div>
 
-            <div className="shrink-0 truncate px-4 text-xs text-muted">
-              {selectedWorkspace?.path ?? activeProject?.rootPath ?? 'No project selected'}
+            <div className="no-drag flex shrink-0 items-center gap-2 px-4">
+              <kbd className="rounded bg-overlay px-1.5 py-0.5 font-mono text-[10px] text-muted" title="Command palette">
+                ⌘K
+              </kbd>
+              <kbd className="rounded bg-overlay px-1.5 py-0.5 font-mono text-[10px] text-muted" title="New terminal">
+                ⌘T
+              </kbd>
+              <kbd className="rounded bg-overlay px-1.5 py-0.5 font-mono text-[10px] text-muted" title="Close terminal">
+                ⌘W
+              </kbd>
             </div>
           </div>
 
@@ -721,9 +924,13 @@ export function App() {
                     <WorktreeTerminal
                       active={tab.id === currentActiveTabId}
                       cwd={tab.workspacePath}
+                      initialCommand={tab.initialCommand}
+                      tmuxSessionName={tab.tmuxSessionName}
                       onNewTab={handleNewTab}
                       onCloseTab={() => handleCloseTab(tab.id)}
-                      onSessionCreated={(sessionId, pid) => handleSessionCreated(tab.id, sessionId, pid)}
+                      onSessionCreated={(sessionId, pid, tmux) =>
+                        handleSessionCreated(tab.id, sessionId, pid, tmux)
+                      }
                     />
                   </div>
                 ))}
@@ -738,6 +945,9 @@ export function App() {
       </div>
 
       {settingsOpen ? <SettingsPanel onClose={() => setSettingsOpen(false)} /> : null}
+      {commandPaletteOpen ? (
+        <CommandPalette commands={commands} onClose={() => setCommandPaletteOpen(false)} />
+      ) : null}
     </div>
   )
 }

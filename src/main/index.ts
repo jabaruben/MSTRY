@@ -7,18 +7,22 @@ import {
   nativeTheme,
   type OpenDialogOptions
 } from 'electron'
+import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 import { disableClaudeHooks, enableClaudeHooks, isClaudeHooksEnabled } from './claude-hooks-config'
 import { addProjectPath, getAppConfig, removeProjectPath, selectProjectPath } from './config'
 import { ClaudeStatusWatcher } from './claude-status'
 import { createWorktree, listWorkspaceItems, removeWorktree } from './git'
+import { loadTabState, saveTabState } from './tab-store'
 import { TerminalManager } from './terminal-manager'
 import type {
   AppConfig,
+  AttachTerminalSessionInput,
   CreateTerminalSessionInput,
   CreateWorktreeInput,
   DeleteWorktreeInput,
+  PersistedTabState,
   Project
 } from '../shared/contracts'
 
@@ -106,9 +110,14 @@ const registerIpc = () => {
   })
 
   ipcMain.handle('terminal:create-session', (_event, input: CreateTerminalSessionInput) => {
-    const sessionId = terminalManager.createSession(input)
-    const pid = terminalManager.getPid(sessionId) ?? 0
-    return { sessionId, pid }
+    const { id, tmuxSessionName } = terminalManager.createSession(input)
+    const pid = terminalManager.getPid(id) ?? 0
+    return { sessionId: id, pid, tmuxSessionName }
+  })
+  ipcMain.handle('terminal:attach-session', (_event, input: AttachTerminalSessionInput) => {
+    const { id } = terminalManager.attachSession(input.tmuxSessionName, input.cols, input.rows)
+    const pid = terminalManager.getPid(id) ?? 0
+    return { sessionId: id, pid }
   })
   ipcMain.handle('terminal:write', (_event, sessionId: string, data: string) =>
     terminalManager.write(sessionId, data)
@@ -116,7 +125,15 @@ const registerIpc = () => {
   ipcMain.handle('terminal:resize', (_event, sessionId: string, cols: number, rows: number) =>
     terminalManager.resize(sessionId, cols, rows)
   )
-  ipcMain.handle('terminal:close', (_event, sessionId: string) => terminalManager.close(sessionId))
+  ipcMain.handle('terminal:detach', (_event, sessionId: string) =>
+    terminalManager.detach(sessionId)
+  )
+  ipcMain.handle('terminal:destroy-session', (_event, tmuxSessionName: string) =>
+    terminalManager.destroyTmuxSession(tmuxSessionName)
+  )
+  ipcMain.handle('terminal:list-tmux-sessions', () => terminalManager.listTmuxSessions())
+  ipcMain.handle('terminal:get-persisted-tabs', () => loadTabState())
+  ipcMain.handle('terminal:persist-tabs', (_event, state: PersistedTabState) => saveTabState(state))
   ipcMain.handle('terminal:set-active-session', (_event, sessionId: string | null) =>
     terminalManager.setActiveSession(sessionId)
   )
@@ -126,7 +143,37 @@ const registerIpc = () => {
   ipcMain.handle('claude:disable-hooks', () => disableClaudeHooks())
 }
 
+function isTmuxInstalled(): boolean {
+  try {
+    execFileSync('tmux', ['-V'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
 app.whenReady().then(async () => {
+  if (!isTmuxInstalled()) {
+    const { response } = await dialog.showMessageBox({
+      type: 'error',
+      title: 'tmux no encontrado',
+      message: 'Electree necesita tmux para funcionar.',
+      detail:
+        'Instálalo con Homebrew ejecutando en tu terminal:\n\n  brew install tmux\n\nDespués vuelve a abrir la aplicación.',
+      buttons: ['Cerrar aplicación', 'Copiar comando'],
+      defaultId: 0,
+      cancelId: 0
+    })
+
+    if (response === 1) {
+      const { clipboard } = await import('electron')
+      clipboard.writeText('brew install tmux')
+    }
+
+    app.quit()
+    return
+  }
+
   // Custom menu that only keeps essential app shortcuts.
   // The default Electron menu intercepts keys like Cmd+R, Cmd+Shift+R, etc.
   // which should be forwarded to the terminal instead.
@@ -229,5 +276,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   claudeStatus.stop()
+  // Only detach PTYs — tmux sessions survive for reattach on next launch.
   terminalManager.disposeAll()
 })

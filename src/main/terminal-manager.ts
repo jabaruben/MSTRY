@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { EventEmitter } from 'node:events'
 
 import { spawn, type IPty } from 'node-pty'
@@ -10,10 +14,29 @@ import type {
   TerminalProcessEvent
 } from '../shared/contracts'
 
+const TMUX_SOCKET = 'electree'
+
+// Minimal tmux config that hides the status bar.
+const TMUX_CONF = join(tmpdir(), 'electree-tmux.conf')
+writeFileSync(
+  TMUX_CONF,
+  [
+    'set-option -g status off',
+    // Fallback: if status ever flickers on, make it invisible (transparent bg, no text).
+    'set-option -g status-style "bg=default,fg=default"',
+    'set-option -g status-left ""',
+    'set-option -g status-right ""',
+    ''
+  ].join('\n')
+)
+
+/** Common tmux args: use our socket and our minimal config. */
+const TMUX_BASE_ARGS = ['-L', TMUX_SOCKET, '-f', TMUX_CONF]
+
 interface TerminalSession {
   id: string
+  tmuxSessionName: string
   cwd: string
-  shell: string
   process: IPty
   lastProcessName: string
   lastDataTimestamp: number
@@ -25,17 +48,10 @@ interface TerminalManagerEvents {
   processChange: [TerminalProcessEvent]
 }
 
-const getDefaultShell = () => {
-  if (process.platform === 'win32') {
-    return process.env.COMSPEC ?? 'powershell.exe'
-  }
-
-  return process.env.SHELL ?? '/bin/zsh'
-}
-
 export class TerminalManager extends EventEmitter<TerminalManagerEvents> {
   private sessions = new Map<string, TerminalSession>()
   private activeSessionId: string | null = null
+  private pollInterval: ReturnType<typeof setInterval> | null = null
 
   setActiveSession(sessionId: string | null) {
     this.activeSessionId = sessionId
@@ -46,85 +62,182 @@ export class TerminalManager extends EventEmitter<TerminalManagerEvents> {
       this.write(this.activeSessionId, data)
     }
   }
-  private pollInterval: ReturnType<typeof setInterval> | null = null
 
-  createSession(input: CreateTerminalSessionInput) {
+  /** Create a new tmux session and attach to it via PTY. */
+  createSession(input: CreateTerminalSessionInput): { id: string; tmuxSessionName: string } {
     const id = randomUUID()
-    const shell = getDefaultShell()
-    const args = process.platform !== 'win32' ? ['--login'] : []
-    const ptyProcess = spawn(shell, args, {
-      cols: input.cols,
-      rows: input.rows,
+    const tmuxSessionName = `electree_${id.slice(0, 8)}`
+
+    // Create a detached tmux session in the requested cwd.
+    execFileSync('tmux', [
+      ...TMUX_BASE_ARGS,
+      'new-session',
+      '-d',
+      '-s',
+      tmuxSessionName,
+      '-c',
+      input.cwd,
+      '-x',
+      String(input.cols),
+      '-y',
+      String(input.rows)
+    ])
+
+    const ptyProcess = this.spawnAttach(tmuxSessionName, input.cols, input.rows)
+
+    const session: TerminalSession = {
+      id,
+      tmuxSessionName,
       cwd: input.cwd,
+      process: ptyProcess,
+      lastProcessName: '',
+      lastDataTimestamp: Date.now()
+    }
+
+    this.wireSession(session)
+    return { id, tmuxSessionName }
+  }
+
+  /** Reattach to an existing tmux session that survived a restart. */
+  attachSession(
+    tmuxSessionName: string,
+    cols: number,
+    rows: number
+  ): { id: string } {
+    const id = randomUUID()
+    const ptyProcess = this.spawnAttach(tmuxSessionName, cols, rows)
+
+    const session: TerminalSession = {
+      id,
+      tmuxSessionName,
+      cwd: '',
+      process: ptyProcess,
+      lastProcessName: '',
+      lastDataTimestamp: Date.now()
+    }
+
+    this.wireSession(session)
+    return { id }
+  }
+
+  /** List tmux sessions alive on the electree socket. */
+  listTmuxSessions(): string[] {
+    try {
+      const output = execFileSync(
+        'tmux',
+        [...TMUX_BASE_ARGS, 'list-sessions', '-F', '#{session_name}'],
+        { encoding: 'utf8' }
+      )
+      return output.trim().split('\n').filter(Boolean)
+    } catch {
+      return []
+    }
+  }
+
+  getPid(sessionId: string): number | null {
+    const session = this.sessions.get(sessionId)
+    if (!session) return null
+
+    // Return the PID of the shell running inside the tmux pane, not the
+    // PID of the local `tmux attach` process.  This must match the
+    // shell_pid reported by the Claude hook so that tabs can be associated
+    // with Claude sessions.
+    try {
+      const output = execFileSync(
+        'tmux',
+        [
+          ...TMUX_BASE_ARGS,
+          'list-panes',
+          '-t',
+          session.tmuxSessionName,
+          '-F',
+          '#{pane_pid}'
+        ],
+        { encoding: 'utf8' }
+      )
+      const pid = parseInt(output.trim().split('\n')[0], 10)
+      if (!isNaN(pid)) return pid
+    } catch {
+      // fall through
+    }
+
+    return session.process.pid ?? null
+  }
+
+  getTmuxSessionName(sessionId: string): string | null {
+    return this.sessions.get(sessionId)?.tmuxSessionName ?? null
+  }
+
+  write(sessionId: string, data: string) {
+    this.sessions.get(sessionId)?.process.write(data)
+  }
+
+  resize(sessionId: string, cols: number, rows: number) {
+    this.sessions.get(sessionId)?.process.resize(cols, rows)
+  }
+
+  /** Detach the PTY wrapper without killing the underlying tmux session. */
+  detach(sessionId: string) {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.process.kill()
+    this.sessions.delete(sessionId)
+    this.stopPollingIfEmpty()
+  }
+
+  /** Kill a tmux session entirely (user intentionally closed the tab). */
+  destroyTmuxSession(tmuxSessionName: string) {
+    try {
+      execFileSync('tmux', [...TMUX_BASE_ARGS, 'kill-session', '-t', tmuxSessionName])
+    } catch {
+      // Session may already be dead — that's fine.
+    }
+  }
+
+  /** Detach all PTYs without killing tmux sessions (app quit / reload). */
+  disposeAll() {
+    this.stopPolling()
+    for (const sessionId of [...this.sessions.keys()]) {
+      this.detach(sessionId)
+    }
+  }
+
+  // -- private helpers -------------------------------------------------------
+
+  private spawnAttach(tmuxSessionName: string, cols: number, rows: number): IPty {
+    // Always force status bar off — the -f config is only read on first server
+    // start, so an already-running server would ignore it.
+    try {
+      execFileSync('tmux', [...TMUX_BASE_ARGS, 'set-option', '-g', 'status', 'off'])
+    } catch {
+      // Server may not be up yet — new-session will start it with the config.
+    }
+
+    return spawn('tmux', [...TMUX_BASE_ARGS, 'attach-session', '-t', tmuxSessionName], {
+      cols,
+      rows,
       env: {
         ...process.env,
         TERM: 'xterm-256color'
       },
       name: 'xterm-256color'
     })
+  }
 
-    const session: TerminalSession = {
-      id,
-      cwd: input.cwd,
-      shell,
-      process: ptyProcess,
-      lastProcessName: '',
-      lastDataTimestamp: Date.now()
-    }
-
-    ptyProcess.onData((data) => {
+  private wireSession(session: TerminalSession) {
+    session.process.onData((data) => {
       session.lastDataTimestamp = Date.now()
-      this.emit('data', { sessionId: id, data })
+      this.emit('data', { sessionId: session.id, data })
     })
 
-    ptyProcess.onExit(({ exitCode }) => {
-      this.sessions.delete(id)
-      this.emit('exit', { sessionId: id, exitCode })
+    session.process.onExit(({ exitCode }) => {
+      this.sessions.delete(session.id)
+      this.emit('exit', { sessionId: session.id, exitCode })
       this.stopPollingIfEmpty()
     })
 
-    this.sessions.set(id, session)
+    this.sessions.set(session.id, session)
     this.startPolling()
-    return id
-  }
-
-  getPid(sessionId: string): number | null {
-    return this.sessions.get(sessionId)?.process.pid ?? null
-  }
-
-  write(sessionId: string, data: string) {
-    const session = this.sessions.get(sessionId)
-    if (!session) {
-      return
-    }
-
-    session.process.write(data)
-  }
-
-  resize(sessionId: string, cols: number, rows: number) {
-    const session = this.sessions.get(sessionId)
-    if (!session) {
-      return
-    }
-
-    session.process.resize(cols, rows)
-  }
-
-  close(sessionId: string) {
-    const session = this.sessions.get(sessionId)
-    if (!session) {
-      return
-    }
-
-    session.process.kill()
-    this.sessions.delete(sessionId)
-  }
-
-  disposeAll() {
-    this.stopPolling()
-    for (const sessionId of this.sessions.keys()) {
-      this.close(sessionId)
-    }
   }
 
   private startPolling() {
@@ -149,7 +262,21 @@ export class TerminalManager extends EventEmitter<TerminalManagerEvents> {
     for (const session of this.sessions.values()) {
       let processName: string
       try {
-        processName = session.process.process
+        // Query the tmux pane's foreground process — more accurate than
+        // node-pty's .process which would just return "tmux".
+        const output = execFileSync(
+          'tmux',
+          [
+            ...TMUX_BASE_ARGS,
+            'list-panes',
+            '-t',
+            session.tmuxSessionName,
+            '-F',
+            '#{pane_current_command}'
+          ],
+          { encoding: 'utf8' }
+        )
+        processName = output.trim().split('\n')[0] ?? ''
       } catch {
         continue
       }

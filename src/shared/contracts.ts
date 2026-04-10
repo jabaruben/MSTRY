@@ -41,6 +41,34 @@ export interface CreateTerminalSessionInput {
   rows: number
 }
 
+export interface CreateTerminalSessionResult {
+  sessionId: string
+  pid: number
+  tmuxSessionName: string
+}
+
+export interface AttachTerminalSessionInput {
+  tmuxSessionName: string
+  cols: number
+  rows: number
+}
+
+export interface AttachTerminalSessionResult {
+  sessionId: string
+  pid: number
+}
+
+export interface PersistedTab {
+  id: string
+  workspacePath: string
+  tmuxSessionName: string
+}
+
+export interface PersistedTabState {
+  tabs: PersistedTab[]
+  activeTabId: Record<string, string>
+}
+
 export interface TerminalDataEvent {
   sessionId: string
   data: string
@@ -79,10 +107,15 @@ export interface ElectronApi {
     remove: (input: DeleteWorktreeInput) => Promise<void>
   }
   terminal: {
-    createSession: (input: CreateTerminalSessionInput) => Promise<{ sessionId: string; pid: number }>
+    createSession: (input: CreateTerminalSessionInput) => Promise<CreateTerminalSessionResult>
+    attachSession: (input: AttachTerminalSessionInput) => Promise<AttachTerminalSessionResult>
     write: (sessionId: string, data: string) => Promise<void>
     resize: (sessionId: string, cols: number, rows: number) => Promise<void>
-    close: (sessionId: string) => Promise<void>
+    detach: (sessionId: string) => Promise<void>
+    destroySession: (tmuxSessionName: string) => Promise<void>
+    listTmuxSessions: () => Promise<string[]>
+    getPersistedTabs: () => Promise<PersistedTabState>
+    persistTabs: (state: PersistedTabState) => Promise<void>
     setActiveSession: (sessionId: string | null) => Promise<void>
     onData: (listener: (event: TerminalDataEvent) => void) => () => void
     onExit: (listener: (event: TerminalExitEvent) => void) => () => void

@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ClaudeSessionInfo,
   ElectronApi,
+  PersistedTabState,
   TerminalDataEvent,
   TerminalExitEvent,
   TerminalProcessEvent
@@ -23,10 +24,17 @@ const api: ElectronApi = {
   },
   terminal: {
     createSession: (input) => ipcRenderer.invoke('terminal:create-session', input),
+    attachSession: (input) => ipcRenderer.invoke('terminal:attach-session', input),
     write: (sessionId, data) => ipcRenderer.invoke('terminal:write', sessionId, data),
     resize: (sessionId, cols, rows) =>
       ipcRenderer.invoke('terminal:resize', sessionId, cols, rows),
-    close: (sessionId) => ipcRenderer.invoke('terminal:close', sessionId),
+    detach: (sessionId) => ipcRenderer.invoke('terminal:detach', sessionId),
+    destroySession: (tmuxSessionName) =>
+      ipcRenderer.invoke('terminal:destroy-session', tmuxSessionName),
+    listTmuxSessions: () => ipcRenderer.invoke('terminal:list-tmux-sessions'),
+    getPersistedTabs: () => ipcRenderer.invoke('terminal:get-persisted-tabs'),
+    persistTabs: (state: PersistedTabState) =>
+      ipcRenderer.invoke('terminal:persist-tabs', state),
     setActiveSession: (sessionId) => ipcRenderer.invoke('terminal:set-active-session', sessionId),
     onData: (listener) => {
       const wrappedListener = (_event: Electron.IpcRendererEvent, payload: TerminalDataEvent) => {
