@@ -14,10 +14,10 @@ import type {
   TerminalProcessEvent
 } from '../shared/contracts'
 
-const TMUX_SOCKET = 'electree'
+const TMUX_SOCKET = 'mstry'
 
 // Minimal tmux config that hides the status bar.
-const TMUX_CONF = join(tmpdir(), 'electree-tmux.conf')
+const TMUX_CONF = join(tmpdir(), 'mstry-tmux.conf')
 writeFileSync(
   TMUX_CONF,
   [
@@ -91,7 +91,7 @@ export class TerminalManager extends EventEmitter<TerminalManagerEvents> {
   /** Create a new tmux session and attach to it via PTY. */
   createSession(input: CreateTerminalSessionInput): { id: string; tmuxSessionName: string } {
     const id = randomUUID()
-    const tmuxSessionName = `electree_${id.slice(0, 8)}`
+    const tmuxSessionName = `mstry_${id.slice(0, 8)}`
 
     // Create a detached tmux session in the requested cwd.
     execFileSync(
@@ -149,7 +149,7 @@ export class TerminalManager extends EventEmitter<TerminalManagerEvents> {
     return { id }
   }
 
-  /** List tmux sessions alive on the electree socket. */
+  /** List tmux sessions alive on the mstry socket. */
   listTmuxSessions(): string[] {
     return this.listTmuxSessionInfo().map((session) => session.name)
   }
@@ -173,7 +173,7 @@ export class TerminalManager extends EventEmitter<TerminalManagerEvents> {
     }
   }
 
-  /** List tmux sessions alive on the electree socket with attachment state. */
+  /** List tmux sessions alive on the mstry socket with attachment state. */
   private listTmuxSessionInfo(): TmuxSessionInfo[] {
     try {
       const output = execFileSync(

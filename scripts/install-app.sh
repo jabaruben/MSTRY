@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Installs the freshly-built Electree.app into /Applications.
+# Installs the freshly-built MSTRY.app into /Applications.
 # Usage: ./scripts/install-app.sh
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Electree.app"
+APP_NAME="MSTRY.app"
 DEST="/Applications/${APP_NAME}"
 
 # electron-builder outputs to release/mac-arm64 on Apple Silicon and release/mac on Intel.
@@ -32,12 +32,12 @@ echo "Fuente:  $SRC"
 echo "Destino: $DEST"
 
 # Quit the running app (if any) so we can overwrite it.
-if pgrep -x "Electree" >/dev/null 2>&1; then
-  echo "Cerrando Electree en ejecución..."
-  osascript -e 'tell application "Electree" to quit' >/dev/null 2>&1 || true
+if pgrep -x "MSTRY" >/dev/null 2>&1; then
+  echo "Cerrando MSTRY en ejecución..."
+  osascript -e 'tell application "MSTRY" to quit' >/dev/null 2>&1 || true
   # Give it a moment; force-kill leftovers.
   sleep 1
-  pkill -x "Electree" >/dev/null 2>&1 || true
+  pkill -x "MSTRY" >/dev/null 2>&1 || true
 fi
 
 # Remove previous install and copy the new bundle.
@@ -52,5 +52,5 @@ cp -R "$SRC" "$DEST"
 # Clear the macOS quarantine attribute so Gatekeeper doesn't block an unsigned build.
 xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
 
-echo "Listo. Electree instalado en $DEST"
-echo "Ábrelo con: open -a Electree"
+echo "Listo. MSTRY instalado en $DEST"
+echo "Ábrelo con: open -a MSTRY"

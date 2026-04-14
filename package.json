@@ -1,5 +1,5 @@
 {
-  "name": "electree",
+  "name": "mstry",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,8 +17,8 @@
     "dist:install": "npm run dist && npm run install-app"
   },
   "build": {
-    "appId": "com.electree.app",
-    "productName": "Electree",
+    "appId": "com.mstry.app",
+    "productName": "MSTRY",
     "directories": {
       "output": "release"
     },

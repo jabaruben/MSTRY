@@ -8,10 +8,10 @@ const HOOK_EVENTS = ['SessionStart', 'BeforeAgent', 'AfterAgent', 'SessionEnd'] 
 
 const getHookCommand = () => {
   // Use the hook script bundled alongside the app.
-  const devPath = path.join(__dirname, '../../resources/hooks/electree-gemini-hook.sh')
+  const devPath = path.join(__dirname, '../../resources/hooks/mstry-gemini-hook.sh')
   if (existsSync(devPath)) return devPath
 
-  const prodPath = path.join(process.resourcesPath, 'hooks/electree-gemini-hook.sh')
+  const prodPath = path.join(process.resourcesPath, 'hooks/mstry-gemini-hook.sh')
   if (existsSync(prodPath)) return prodPath
 
   return devPath
@@ -46,8 +46,8 @@ const writeSettings = (settings: GeminiSettings) => {
   writeFileSync(GEMINI_SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n', 'utf-8')
 }
 
-const isElectreeHook = (entry: HookEntry) =>
-  entry.command.includes('electree-gemini-hook')
+const isMstryHook = (entry: HookEntry) =>
+  entry.command.includes('mstry-gemini-hook')
 
 export const isGeminiHooksEnabled = (): boolean => {
   const settings = readSettings()
@@ -59,7 +59,7 @@ export const isGeminiHooksEnabled = (): boolean => {
     const matchers = settings.hooks?.[event]
     if (!matchers) return false
     return matchers.some((m) =>
-      m.hooks.some((h) => isElectreeHook(h) && path.resolve(h.command) === currentCommand)
+      m.hooks.some((h) => isMstryHook(h) && path.resolve(h.command) === currentCommand)
     )
   })
 }
@@ -69,7 +69,7 @@ export const enableGeminiHooks = (): void => {
   if (!settings.hooks) settings.hooks = {}
 
   const command = path.resolve(getHookCommand())
-  const electreeHook: HookEntry = { name: 'electree-gemini-status', type: 'command', command }
+  const mstryHook: HookEntry = { name: 'mstry-gemini-status', type: 'command', command }
 
   for (const event of HOOK_EVENTS) {
     if (!settings.hooks[event]) {
@@ -78,17 +78,17 @@ export const enableGeminiHooks = (): void => {
 
     // Check if already registered
     const existingMatcher = settings.hooks[event].find((m) =>
-      m.hooks.some(isElectreeHook)
+      m.hooks.some(isMstryHook)
     )
 
     if (existingMatcher) {
       // Update command if path changed
-      const hook = existingMatcher.hooks.find(isElectreeHook)
+      const hook = existingMatcher.hooks.find(isMstryHook)
       if (hook) hook.command = command
     } else {
       settings.hooks[event].push({
         matcher: '',
-        hooks: [electreeHook]
+        hooks: [mstryHook]
       })
     }
   }
@@ -107,7 +107,7 @@ export const disableGeminiHooks = (): void => {
     settings.hooks[event] = matchers
       .map((m) => ({
         ...m,
-        hooks: m.hooks.filter((h) => !isElectreeHook(h))
+        hooks: m.hooks.filter((h) => !isMstryHook(h))
       }))
       .filter((m) => m.hooks.length > 0)
 

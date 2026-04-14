@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import type { GeminiSessionInfo } from '../shared/contracts'
 
-const STATUS_DIR = '/tmp/electree-gemini'
+const STATUS_DIR = '/tmp/mstry-gemini'
 
 interface RawSessionFile {
   session_id: string

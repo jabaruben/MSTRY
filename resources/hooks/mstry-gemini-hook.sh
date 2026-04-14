@@ -1,16 +1,16 @@
 #!/bin/bash
-# Electree Gemini hook — writes session status to /tmp/electree-gemini/
-# so the Electree app can display Gemini's state in terminal tabs.
+# MSTRY Gemini hook — writes session status to /tmp/mstry-gemini/
+# so the MSTRY app can display Gemini's state in terminal tabs.
 
 # Gemini hooks receive JSON via stdin
 INPUT=$(cat)
-DIR="/tmp/electree-gemini"
+DIR="/tmp/mstry-gemini"
 mkdir -p "$DIR" 2>/dev/null
 
-echo "--- $(date) --- GEMINI PID: $$ PPID: $PPID ---" >> /tmp/electree-gemini-hook-debug.log
-echo "INPUT: $INPUT" >> /tmp/electree-gemini-hook-debug.log
-echo "GEMINI_SESSION_ID env: $GEMINI_SESSION_ID" >> /tmp/electree-gemini-hook-debug.log
-echo "GEMINI_CWD env: $GEMINI_CWD" >> /tmp/electree-gemini-hook-debug.log
+echo "--- $(date) --- GEMINI PID: $$ PPID: $PPID ---" >> /tmp/mstry-gemini-hook-debug.log
+echo "INPUT: $INPUT" >> /tmp/mstry-gemini-hook-debug.log
+echo "GEMINI_SESSION_ID env: $GEMINI_SESSION_ID" >> /tmp/mstry-gemini-hook-debug.log
+echo "GEMINI_CWD env: $GEMINI_CWD" >> /tmp/mstry-gemini-hook-debug.log
 
 # Simple JSON string field extraction (no jq dependency)
 field() { echo "$INPUT" | grep -o "\"$1\":\"[^\"]*\"" | head -1 | cut -d'"' -f4; }
@@ -37,7 +37,7 @@ case "$EVT" in
   BeforeAgent)  S=working ;;
   AfterAgent)   S=idle ;;
   SessionEnd)   rm -f "$FILE"; echo "{}"; exit 0 ;;
-  *)            echo "{}"; echo "Unknown event: $EVT" >> /tmp/electree-gemini-hook-debug.log; exit 0 ;;
+  *)            echo "{}"; echo "Unknown event: $EVT" >> /tmp/mstry-gemini-hook-debug.log; exit 0 ;;
 esac
 
 if [ -z "$CWD_VAL" ]; then

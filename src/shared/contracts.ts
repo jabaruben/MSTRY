@@ -106,6 +106,32 @@ export interface OpenCodeSessionInfo {
   cwd: string
   name: string | null
   shellPid: number
+  prompt?: string | null
+}
+
+export interface CodingToolInfo {
+  id: string
+  name: string
+  description: string
+  installed: boolean
+}
+
+export interface CodexSessionInfo {
+  sessionId: string
+  status: 'working' | 'idle'
+  cwd: string
+  name: string | null
+  shellPid: number
+  prompt?: string | null
+}
+
+export interface GeminiSessionInfo {
+  sessionId: string
+  status: 'working' | 'idle'
+  cwd: string
+  name: string | null
+  shellPid: number
+  prompt?: string | null
 }
 
 export interface ElectronApi {
@@ -157,6 +183,21 @@ export interface ElectronApi {
   }
   opencode: {
     onSessionChange: (listener: (sessions: OpenCodeSessionInfo[]) => void) => () => void
+  }
+  codex: {
+    onSessionChange: (listener: (sessions: CodexSessionInfo[]) => void) => () => void
+    isHooksEnabled: () => Promise<boolean>
+    enableHooks: () => Promise<void>
+    disableHooks: () => Promise<void>
+  }
+  gemini: {
+    isHooksEnabled: () => Promise<boolean>
+    enableHooks: () => Promise<void>
+    disableHooks: () => Promise<void>
+  }
+  tools: {
+    checkAll: () => Promise<CodingToolInfo[]>
+    install: (toolId: string) => Promise<void>
   }
   cli: {
     isInstalled: () => Promise<boolean>

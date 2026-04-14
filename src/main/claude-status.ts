@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import type { ClaudeSessionInfo } from '../shared/contracts'
 
-const STATUS_DIR = '/tmp/electree-claude'
+const STATUS_DIR = '/tmp/mstry-claude'
 
 interface RawSessionFile {
   session_id: string
@@ -21,6 +21,7 @@ interface ClaudeStatusEvents {
 
 export class ClaudeStatusWatcher extends EventEmitter<ClaudeStatusEvents> {
   private lastJson = ''
+  private sessions: ClaudeSessionInfo[] = []
   private nameCache = new Map<string, string>()
   private pollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -35,6 +36,10 @@ export class ClaudeStatusWatcher extends EventEmitter<ClaudeStatusEvents> {
       clearInterval(this.pollTimer)
       this.pollTimer = null
     }
+  }
+
+  getSessions(): ClaudeSessionInfo[] {
+    return [...this.sessions]
   }
 
   private poll() {
@@ -65,6 +70,8 @@ export class ClaudeStatusWatcher extends EventEmitter<ClaudeStatusEvents> {
         // skip malformed files
       }
     }
+
+    this.sessions = sessions
 
     const json = JSON.stringify(sessions)
     if (json !== this.lastJson) {

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Electree Codex hook — writes session status to /tmp/electree-codex/
-# so the Electree app can display Codex state in terminal tabs.
+# MSTRY Codex hook — writes session status to /tmp/mstry-codex/
+# so the MSTRY app can display Codex state in terminal tabs.
 
 INPUT=$(cat)
-DIR="/tmp/electree-codex"
+DIR="/tmp/mstry-codex"
 mkdir -p "$DIR" 2>/dev/null
 
 field() { printf '%s' "$INPUT" | grep -o "\"$1\":\"[^\"]*\"" | head -1 | cut -d'"' -f4; }

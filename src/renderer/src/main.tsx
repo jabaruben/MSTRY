@@ -19,7 +19,7 @@ document.addEventListener('drop', (e) => {
   const files = e.dataTransfer?.files
   if (!files?.length) return
 
-  if (!window.electree) return
+  if (!window.mstry) return
 
   const paths: string[] = []
   for (let i = 0; i < files.length; i++) {
@@ -29,7 +29,7 @@ document.addEventListener('drop', (e) => {
     }
   }
   if (paths.length > 0) {
-    void window.electree.terminal.writeToActiveSession(paths.join(' '))
+    void window.mstry.terminal.writeToActiveSession(paths.join(' '))
   }
 })
 

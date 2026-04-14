@@ -1,8 +1,8 @@
 #!/bin/bash
-# Electree Claude hook — writes session status to /tmp/electree-claude/
-# so the Electree app can display Claude's state in terminal tabs.
+# MSTRY Claude hook — writes session status to /tmp/mstry-claude/
+# so the MSTRY app can display Claude's state in terminal tabs.
 INPUT=$(cat)
-DIR="/tmp/electree-claude"
+DIR="/tmp/mstry-claude"
 mkdir -p "$DIR" 2>/dev/null
 
 # Simple JSON string field extraction (no jq dependency)

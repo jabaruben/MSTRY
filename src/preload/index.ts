@@ -2,7 +2,10 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 import type {
   ClaudeSessionInfo,
+  CodingToolInfo,
+  CodexSessionInfo,
   ElectronApi,
+  GeminiSessionInfo,
   OpenCodeSessionInfo,
   PersistedTabState,
   TerminalDataEvent,
@@ -90,14 +93,25 @@ const api: ElectronApi = {
   },
   claude: {
     onSessionChange: (listener) => {
+      let receivedLiveUpdate = false
       const wrappedListener = (
         _event: Electron.IpcRendererEvent,
         payload: ClaudeSessionInfo[]
       ) => {
+        receivedLiveUpdate = true
         listener(payload)
       }
 
       ipcRenderer.on('claude:session-change', wrappedListener)
+      void ipcRenderer
+        .invoke('claude:get-sessions')
+        .then((payload: ClaudeSessionInfo[]) => {
+          if (!receivedLiveUpdate) {
+            listener(payload)
+          }
+        })
+        .catch(() => {})
+
       return () => ipcRenderer.off('claude:session-change', wrappedListener)
     },
     isHooksEnabled: () => ipcRenderer.invoke('claude:is-hooks-enabled'),
@@ -121,7 +135,43 @@ const api: ElectronApi = {
       ipcRenderer.on('opencode:session-change', wrappedListener)
       return () => ipcRenderer.off('opencode:session-change', wrappedListener)
     }
+  },
+  codex: {
+    onSessionChange: (listener) => {
+      let receivedLiveUpdate = false
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        payload: CodexSessionInfo[]
+      ) => {
+        receivedLiveUpdate = true
+        listener(payload)
+      }
+
+      ipcRenderer.on('codex:session-change', wrappedListener)
+      void ipcRenderer
+        .invoke('codex:get-sessions')
+        .then((payload: CodexSessionInfo[]) => {
+          if (!receivedLiveUpdate) {
+            listener(payload)
+          }
+        })
+        .catch(() => {})
+
+      return () => ipcRenderer.off('codex:session-change', wrappedListener)
+    },
+    isHooksEnabled: () => ipcRenderer.invoke('codex:is-hooks-enabled'),
+    enableHooks: () => ipcRenderer.invoke('codex:enable-hooks'),
+    disableHooks: () => ipcRenderer.invoke('codex:disable-hooks')
+  },
+  gemini: {
+    isHooksEnabled: () => ipcRenderer.invoke('gemini:is-hooks-enabled'),
+    enableHooks: () => ipcRenderer.invoke('gemini:enable-hooks'),
+    disableHooks: () => ipcRenderer.invoke('gemini:disable-hooks')
+  },
+  tools: {
+    checkAll: () => ipcRenderer.invoke('tools:check-all'),
+    install: (toolId: string) => ipcRenderer.invoke('tools:install', toolId)
   }
 }
 
-contextBridge.exposeInMainWorld('electree', api)
+contextBridge.exposeInMainWorld('mstry', api)

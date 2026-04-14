@@ -4,10 +4,10 @@ import path from 'node:path'
 
 import type { OpenCodeSessionInfo } from '../shared/contracts'
 
-const STATUS_DIR = '/tmp/electree-opencode'
+const STATUS_DIR = '/tmp/mstry-opencode'
 
 interface RawSessionFile {
-  sessionId: string
+  session_id: string
   status: 'working' | 'idle'
   cwd: string
   name: string | null
@@ -52,7 +52,7 @@ export class OpenCodeStatusWatcher extends EventEmitter<OpenCodeStatusEvents> {
         ) as RawSessionFile
 
         sessions.push({
-          sessionId: raw.sessionId,
+          sessionId: raw.session_id,
           status: raw.status,
           cwd: raw.cwd,
           name: raw.name,

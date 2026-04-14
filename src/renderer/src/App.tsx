@@ -2,42 +2,32 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useHotkeys } from '@tanstack/react-hotkeys'
 import {
-  DndContext,
-  PointerSensor,
-  KeyboardSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import {
   VscAdd,
   VscCheck,
   VscChevronDown,
   VscChevronRight,
   VscClose,
-  VscFolder,
   VscFolderOpened,
   VscLayoutSidebarLeft,
   VscLayoutSidebarLeftOff,
   VscRefresh,
   VscRepo,
   VscSettingsGear,
-  VscSortPrecedence,
   VscSourceControl,
   VscTerminalBash,
   VscTrash
 } from 'react-icons/vsc'
+import { BsClaude } from 'react-icons/bs'
 
-import type { AppConfig, ClaudeSessionInfo, OpenCodeSessionInfo, PersistedTab, Project, WorkspaceItem } from '../../shared/contracts'
+import type {
+  AppConfig,
+  ClaudeSessionInfo,
+  CodexSessionInfo,
+  OpenCodeSessionInfo,
+  PersistedTab,
+  Project,
+  WorkspaceItem
+} from '../../shared/contracts'
 import { CommandPalette, type CommandItem } from './components/command-palette'
 import { SettingsPanel } from './components/settings-panel'
 import { WorktreeTerminal } from './components/worktree-terminal'
@@ -78,6 +68,9 @@ const createRestoredTab = (persisted: PersistedTab): TerminalTab => ({
 
 const isClaudeProcess = (name: string | null) =>
   name != null && /\bclaude\b/i.test(name)
+
+const isCodexProcess = (name: string | null) =>
+  name != null && /\bcodex\b/i.test(name)
 
 const isOpenCodeProcess = (name: string | null) =>
   name != null && /\bopencode\b/i.test(name)
@@ -120,71 +113,22 @@ const generateRandomWorktreeName = () => {
   return `${adj}-${noun}`
 }
 
-const getWorkspaceMeta = (item: WorkspaceItem) => {
-  if (item.kind === 'directory') {
-    return 'folder'
-  }
-
-  if (item.isMain) {
-    return 'main'
-  }
-
-  return item.branch ?? 'worktree'
-}
-
-function SortableAgentItem({
-  id,
-  children
-}: {
-  id: string
-  children: (args: { listeners: ReturnType<typeof useSortable>['listeners']; isDragging: boolean }) => React.ReactNode
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1
-  }
-  return (
-    <div ref={setNodeRef} style={style} {...attributes}>
-      {children({ listeners, isDragging })}
-    </div>
-  )
-}
-
 export function App() {
   const queryClient = useQueryClient()
   const { selectedWorkspacePath, setSelectedWorkspacePath } = useSelectedWorkspace()
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const [activeTabId, setActiveTabId] = useState<Record<string, string>>({})
-  const [projectsCollapsed, setProjectsCollapsed] = useState(false)
-  const [worktreesCollapsed, setWorktreesCollapsed] = useState(false)
   const [agentsCollapsed, setAgentsCollapsed] = useState(false)
+  const [collapsedAgentProjects, setCollapsedAgentProjects] = useState<Set<string>>(new Set())
+  const [collapsedAgentWorktrees, setCollapsedAgentWorktrees] = useState<Set<string>>(new Set())
   const [draftWorktreeName, setDraftWorktreeName] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [sidebarWidth, setSidebarWidth] = useState(340)
   const [mouseMode, setMouseMode] = useState(false)
-  const isResizing = useRef(false)
-
-  const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  )
-
-  const handleAgentDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    setTabs((current) => {
-      const oldIndex = current.findIndex((t) => t.id === active.id)
-      const newIndex = current.findIndex((t) => t.id === over.id)
-      if (oldIndex === -1 || newIndex === -1) return current
-      return arrayMove(current, oldIndex, newIndex)
-    })
-  }, [])
-
-  const [worktreeOrder, setWorktreeOrder] = useState<string[]>([])
+  const [customTabNames, setCustomTabNames] = useState<Record<string, string>>({})
+  const [editingTabId, setEditingTabId] = useState<string | null>(null)
+  const [editingValue, setEditingValue] = useState('')
 
   const appConfigQuery = useQuery({
     queryKey: ['app-config'],
@@ -227,43 +171,11 @@ export function App() {
     }
   })
 
-  const reorderProjectsMutation = useMutation({
-    mutationFn: (orderedPaths: string[]) =>
-      getElectronBridge().workspace.reorderProjects(orderedPaths),
-    onMutate: async (orderedPaths) => {
-      await queryClient.cancelQueries({ queryKey: ['app-config'] })
-      const previous = queryClient.getQueryData<AppConfig>(['app-config'])
-      if (previous) {
-        const byPath = new Map(previous.projects.map((project) => [project.rootPath, project]))
-        const reordered: Project[] = []
-        const seen = new Set<string>()
-        for (const candidate of orderedPaths) {
-          const project = byPath.get(candidate)
-          if (project && !seen.has(candidate)) {
-            reordered.push(project)
-            seen.add(candidate)
-          }
-        }
-        for (const project of previous.projects) {
-          if (!seen.has(project.rootPath)) reordered.push(project)
-        }
-        queryClient.setQueryData<AppConfig>(['app-config'], { ...previous, projects: reordered })
-      }
-      return { previous }
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) queryClient.setQueryData(['app-config'], context.previous)
-    },
-    onSuccess: (config) => {
-      queryClient.setQueryData(['app-config'], config)
-    }
-  })
-
   const removeProjectMutation = useMutation({
     mutationFn: (project: Project) => getElectronBridge().workspace.removeProject(project.rootPath),
     onSuccess: (config, removedProject) => {
       queryClient.setQueryData(['app-config'], config)
-      const electree = getElectronBridge()
+      const bridge = getElectronBridge()
       setTabs((current) => {
         const removed = current.filter((tab) => {
           if (tab.workspacePath === removedProject.rootPath) return true
@@ -271,7 +183,7 @@ export function App() {
           return false
         })
         for (const tab of removed) {
-          if (tab.tmuxSessionName) void electree.terminal.destroySession(tab.tmuxSessionName)
+          if (tab.tmuxSessionName) void bridge.terminal.destroySession(tab.tmuxSessionName)
         }
         return current.filter((tab) => !removed.includes(tab))
       })
@@ -295,11 +207,11 @@ export function App() {
         setSelectedWorkspacePath(null)
       }
 
-      const electree = getElectronBridge()
+      const bridge = getElectronBridge()
       setTabs((current) => {
         for (const tab of current) {
           if (tab.workspacePath === workspacePath && tab.tmuxSessionName) {
-            void electree.terminal.destroySession(tab.tmuxSessionName)
+            void bridge.terminal.destroySession(tab.tmuxSessionName)
           }
         }
         return current.filter((tab) => tab.workspacePath !== workspacePath)
@@ -311,77 +223,6 @@ export function App() {
       }
     }
   })
-
-  useEffect(() => {
-    if (!activeProject) {
-      setWorktreeOrder([])
-      return
-    }
-    try {
-      const saved = localStorage.getItem(`worktree-order:${activeProject.rootPath}`)
-      setWorktreeOrder(saved ? (JSON.parse(saved) as string[]) : [])
-    } catch {
-      setWorktreeOrder([])
-    }
-  }, [activeProject?.rootPath])
-
-  useEffect(() => {
-    if (!activeProject) return
-    try {
-      localStorage.setItem(
-        `worktree-order:${activeProject.rootPath}`,
-        JSON.stringify(worktreeOrder)
-      )
-    } catch {
-      /* ignore quota errors */
-    }
-  }, [activeProject?.rootPath, worktreeOrder])
-
-  const orderedWorkspaces = useMemo(() => {
-    const items = workspacesQuery.data ?? []
-    if (worktreeOrder.length === 0) return items
-    const byPath = new Map(items.map((item) => [item.path, item]))
-    const ordered: WorkspaceItem[] = []
-    const seen = new Set<string>()
-    for (const path of worktreeOrder) {
-      const item = byPath.get(path)
-      if (item && !seen.has(path)) {
-        ordered.push(item)
-        seen.add(path)
-      }
-    }
-    for (const item of items) {
-      if (!seen.has(item.path)) ordered.push(item)
-    }
-    return ordered
-  }, [workspacesQuery.data, worktreeOrder])
-
-  const handleProjectDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event
-      if (!over || active.id === over.id) return
-      const projects = appConfigQuery.data?.projects ?? []
-      const paths = projects.map((project) => project.rootPath)
-      const oldIndex = paths.indexOf(active.id as string)
-      const newIndex = paths.indexOf(over.id as string)
-      if (oldIndex === -1 || newIndex === -1) return
-      reorderProjectsMutation.mutate(arrayMove(paths, oldIndex, newIndex))
-    },
-    [appConfigQuery.data?.projects, reorderProjectsMutation]
-  )
-
-  const handleWorktreeDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event
-      if (!over || active.id === over.id) return
-      const paths = orderedWorkspaces.map((item) => item.path)
-      const oldIndex = paths.indexOf(active.id as string)
-      const newIndex = paths.indexOf(over.id as string)
-      if (oldIndex === -1 || newIndex === -1) return
-      setWorktreeOrder(arrayMove(paths, oldIndex, newIndex))
-    },
-    [orderedWorkspaces]
-  )
 
   useEffect(() => {
     const availableItems = workspacesQuery.data ?? []
@@ -411,8 +252,8 @@ export function App() {
   }, [defaultTabCommand, selectedWorkspacePath, tabs])
 
   useEffect(() => {
-    const electree = getElectronBridge()
-    const off = electree.terminal.onProcessChange((event) => {
+    const bridge = getElectronBridge()
+    const off = bridge.terminal.onProcessChange((event) => {
       setTabs((current) =>
         current.map((tab) =>
           tab.sessionId === event.sessionId ? { ...tab, processName: event.processName } : tab
@@ -423,25 +264,32 @@ export function App() {
   }, [])
 
   const [claudeSessions, setClaudeSessions] = useState<ClaudeSessionInfo[]>([])
-  const [opencodeSessions, setOpencodeSessions] = useState<OpenCodeSessionInfo[]>([])
+  const [codexSessions, setCodexSessions] = useState<CodexSessionInfo[]>([])
+  // const [opencodeSessions, setOpencodeSessions] = useState<OpenCodeSessionInfo[]>([])
   const tabsRestoredRef = useRef(false)
 
   useEffect(() => {
-    const electree = getElectronBridge()
-    const off = electree.claude.onSessionChange(setClaudeSessions)
+    const bridge = getElectronBridge()
+    const off = bridge.claude.onSessionChange(setClaudeSessions)
     return off
   }, [])
 
   useEffect(() => {
-    const electree = getElectronBridge()
-    const off = electree.opencode.onSessionChange(setOpencodeSessions)
+    const bridge = getElectronBridge()
+    const off = bridge.codex.onSessionChange(setCodexSessions)
     return off
   }, [])
 
+  // useEffect(() => {
+  //   const bridge = getElectronBridge()
+  //   const off = bridge.opencode.onSessionChange(setOpencodeSessions)
+  //   return off
+  // }, [])
+
   useEffect(() => {
-    const electree = getElectronBridge()
-    void electree.terminal.getMouseMode().then(setMouseMode)
-    const off = electree.terminal.onMouseModeChanged(setMouseMode)
+    const bridge = getElectronBridge()
+    void bridge.terminal.getMouseMode().then(setMouseMode)
+    const off = bridge.terminal.onMouseModeChanged(setMouseMode)
     return off
   }, [])
 
@@ -450,11 +298,11 @@ export function App() {
     if (tabsRestoredRef.current) return
     tabsRestoredRef.current = true
 
-    const electree = getElectronBridge()
+    const bridge = getElectronBridge()
     void (async () => {
       const [persisted, aliveSessions] = await Promise.all([
-        electree.terminal.getPersistedTabs(),
-        electree.terminal.listTmuxSessions()
+        bridge.terminal.getPersistedTabs(),
+        bridge.terminal.listTmuxSessions()
       ])
 
       const aliveSet = new Set(aliveSessions)
@@ -504,6 +352,62 @@ export function App() {
   )
 
   const currentActiveTabId = selectedWorkspacePath ? activeTabId[selectedWorkspacePath] ?? null : null
+
+  const groupedAgents = useMemo(() => {
+    const projects = appConfigQuery.data?.projects ?? []
+    const workspaces = workspacesQuery.data ?? []
+
+    const tabsByProject = new Map<string, TerminalTab[]>()
+    for (const tab of tabs) {
+      let projectPath = '__orphan__'
+      for (const project of projects) {
+        if (
+          tab.workspacePath === project.rootPath ||
+          (project.worktreeRoot && tab.workspacePath.startsWith(project.worktreeRoot))
+        ) {
+          projectPath = project.rootPath
+          break
+        }
+      }
+      if (!tabsByProject.has(projectPath)) tabsByProject.set(projectPath, [])
+      tabsByProject.get(projectPath)!.push(tab)
+    }
+
+    const groups: {
+      project: Project | null
+      projectPath: string
+      worktrees: { path: string; label: string; tabs: TerminalTab[] }[]
+    }[] = []
+
+    for (const [projectPath, projectTabs] of tabsByProject) {
+      const project = projects.find((p) => p.rootPath === projectPath) ?? null
+
+      const tabsByWorkspace = new Map<string, TerminalTab[]>()
+      for (const tab of projectTabs) {
+        if (!tabsByWorkspace.has(tab.workspacePath))
+          tabsByWorkspace.set(tab.workspacePath, [])
+        tabsByWorkspace.get(tab.workspacePath)!.push(tab)
+      }
+
+      const worktreeGroups: { path: string; label: string; tabs: TerminalTab[] }[] = []
+      for (const [wsPath, wsTabs] of tabsByWorkspace) {
+        const wsData = workspaces.find((w) => w.path === wsPath)
+        let label: string
+        if (wsData) {
+          label = wsData.branch ?? (wsData.isMain ? 'main' : wsData.name)
+        } else if (project && wsPath === project.rootPath) {
+          label = 'main'
+        } else {
+          label = wsPath.split('/').pop() ?? 'workspace'
+        }
+        worktreeGroups.push({ path: wsPath, label, tabs: wsTabs })
+      }
+
+      groups.push({ project, projectPath, worktrees: worktreeGroups })
+    }
+
+    return groups
+  }, [tabs, appConfigQuery.data?.projects, workspacesQuery.data])
 
   const handleToggleMouse = useCallback(() => {
     void getElectronBridge().terminal.toggleMouse()
@@ -630,29 +534,6 @@ export function App() {
         ? getErrorMessage(removeWorktreeMutation.error)
         : null
 
-  const handleSidebarResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    isResizing.current = true
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!isResizing.current) return
-      const newWidth = Math.min(Math.max(ev.clientX, 200), 600)
-      setSidebarWidth(newWidth)
-    }
-
-    const onMouseUp = () => {
-      isResizing.current = false
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-    }
-
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-  }, [])
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['app-config'] })
@@ -804,8 +685,7 @@ export function App() {
     <div className="min-h-screen bg-background text-foreground">
       <div className="flex h-screen overflow-hidden">
         <aside
-          className={cn('flex shrink-0 flex-col overflow-hidden bg-sidebar', sidebarOpen ? 'border-r' : 'border-r-0')}
-          style={{ width: sidebarOpen ? sidebarWidth : 0 }}
+          className={cn('flex shrink-0 flex-col overflow-hidden bg-sidebar', sidebarOpen ? 'w-[400px] border-r' : 'w-0 border-r-0')}
         >
           {/* Drag region for macOS traffic lights */}
           <div className="drag-region h-11 shrink-0 border-b pl-[78px]">
@@ -840,130 +720,11 @@ export function App() {
             </div>
           ) : null}
 
-          <div className="border-b">
-            <div className="flex h-9 items-center">
-              <button
-                type="button"
-                onClick={() => setProjectsCollapsed((c) => !c)}
-                className="flex min-w-0 flex-1 items-center gap-2 px-4 text-[11px] uppercase tracking-[0.18em] text-muted hover:text-secondary"
-              >
-                {projectsCollapsed ? (
-                  <VscChevronRight className="size-3.5" />
-                ) : (
-                  <VscChevronDown className="size-3.5" />
-                )}
-                Projects
-              </button>
-
-              <Button
-                size="icon"
-                variant="ghost"
-                className="mr-0.5 size-7 rounded-md"
-                onClick={() => {
-                  const projects = appConfigQuery.data?.projects ?? []
-                  const sorted = [...projects].sort((a, b) => a.name.localeCompare(b.name))
-                  reorderProjectsMutation.mutate(sorted.map((p) => p.rootPath))
-                }}
-                aria-label="Sort alphabetically"
-                title="Sort alphabetically"
-              >
-                <VscSortPrecedence className="size-4" />
-              </Button>
-
-              <Button
-                size="icon"
-                variant="ghost"
-                className="mr-2 size-7 rounded-md"
-                onClick={() => void pickProjectMutation.mutateAsync()}
-                aria-label="Open folder"
-                title="Open folder"
-              >
-                <VscFolderOpened className="size-4" />
-              </Button>
+          {worktreeErrorMessage ? (
+            <div className="border-b border-red-500/10 bg-red-500/[0.06] px-4 py-2.5 text-xs text-error">
+              {worktreeErrorMessage}
             </div>
-
-            {!projectsCollapsed ? (
-              <ScrollArea className="[&_[data-radix-scroll-area-viewport]]:max-h-[220px]">
-                <div className="px-2 pb-2">
-                  <DndContext
-                    sensors={dndSensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleProjectDragEnd}
-                  >
-                    <SortableContext
-                      items={(appConfigQuery.data?.projects ?? []).map((p) => p.rootPath)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                  {appConfigQuery.data?.projects.map((project) => {
-                    const isActive = project.rootPath === activeProject?.rootPath
-
-                    return (
-                      <SortableAgentItem key={project.rootPath} id={project.rootPath}>
-                        {({ listeners }) => (
-                      <div
-                        className={cn(
-                          'group flex items-center gap-2 rounded-md px-2 py-1',
-                          isActive ? 'bg-item-active text-foreground' : 'text-secondary hover:bg-item-hover'
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => void selectProjectMutation.mutateAsync(project.rootPath)}
-                          {...listeners}
-                          className="flex min-w-0 flex-1 cursor-grab items-center gap-2 text-left active:cursor-grabbing"
-                        >
-                          <span className="flex size-4 shrink-0 items-center justify-center text-icon">
-                            {project.mode === 'git' ? (
-                              <VscRepo className="size-3.5" />
-                            ) : (
-                              <VscFolder className="size-3.5" />
-                            )}
-                          </span>
-
-                          <span className="min-w-0 flex-1 leading-tight">
-                            <span className="block truncate text-[10px] uppercase tracking-[0.14em] text-muted">
-                              {project.mode === 'git' ? 'repo' : 'folder'}
-                            </span>
-                            <span className="block truncate text-xs">{project.name}</span>
-                          </span>
-                        </button>
-
-                        {isActive && isGitProject ? (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-5 rounded opacity-0 group-hover:opacity-100"
-                            onClick={() => setDraftWorktreeName((current) => current !== null ? null : generateRandomWorktreeName())}
-                            aria-label="Create worktree"
-                            title="Create worktree"
-                          >
-                            <VscAdd className="size-3.5" />
-                          </Button>
-                        ) : null}
-
-                        {appConfigQuery.data.projects.length > 1 ? (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-5 rounded opacity-0 group-hover:opacity-100"
-                            onClick={() => void handleDeleteProject(project)}
-                            aria-label={`Quitar ${project.name}`}
-                            title="Quitar proyecto"
-                          >
-                            <VscTrash className="size-3.5" />
-                          </Button>
-                        ) : null}
-                      </div>
-                        )}
-                      </SortableAgentItem>
-                    )
-                  })}
-                    </SortableContext>
-                  </DndContext>
-                </div>
-              </ScrollArea>
-            ) : null}
-          </div>
+          ) : null}
 
           {draftWorktreeName !== null && isGitProject ? (
             <div className="border-b px-3 py-3">
@@ -994,137 +755,11 @@ export function App() {
             </div>
           ) : null}
 
-          {worktreeErrorMessage ? (
-            <div className="border-b border-red-500/10 bg-red-500/[0.06] px-4 py-2.5 text-xs text-error">
-              {worktreeErrorMessage}
-            </div>
-          ) : null}
-
-          <div className="flex h-9 shrink-0 items-center border-b">
-            <button
-              type="button"
-              onClick={() => setWorktreesCollapsed((c) => !c)}
-              className="flex min-w-0 flex-1 items-center gap-2 px-4 text-[11px] uppercase tracking-[0.18em] text-muted hover:text-secondary"
-            >
-              {worktreesCollapsed ? (
-                <VscChevronRight className="size-3.5" />
-              ) : (
-                <VscChevronDown className="size-3.5" />
-              )}
-              {isGitProject ? 'Worktrees' : 'Workspace'}
-            </button>
-
-            <Button
-              size="icon"
-              variant="ghost"
-              className="mr-0.5 size-7 rounded-md"
-              onClick={() => {
-                const sorted = [...orderedWorkspaces].sort((a, b) => a.name.localeCompare(b.name))
-                setWorktreeOrder(sorted.map((item) => item.path))
-              }}
-              aria-label="Sort alphabetically"
-              title="Sort alphabetically"
-            >
-              <VscSortPrecedence className="size-4" />
-            </Button>
-
-            {isGitProject ? (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="mr-2 size-7 rounded-md"
-                onClick={() => setDraftWorktreeName((current) => current !== null ? null : generateRandomWorktreeName())}
-                aria-label="Create worktree"
-                title="Create worktree"
-              >
-                <VscAdd className="size-4" />
-              </Button>
-            ) : null}
-          </div>
-
-          {!worktreesCollapsed ? (
-            <ScrollArea className="shrink-0 border-b [&_[data-radix-scroll-area-viewport]]:max-h-[40vh]">
-              <div className="px-2 py-2">
-                {workspacesQuery.isPending ? (
-                  <div className="px-2 py-2 text-sm text-muted">Loading...</div>
-                ) : null}
-
-                {!workspacesQuery.isPending && orderedWorkspaces.length === 0 ? (
-                  <div className="px-2 py-2 text-sm text-muted">No items</div>
-                ) : null}
-
-                <DndContext
-                  sensors={dndSensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleWorktreeDragEnd}
-                >
-                  <SortableContext
-                    items={orderedWorkspaces.map((item) => item.path)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                {orderedWorkspaces.map((item) => {
-                  const isSelected = selectedWorkspacePath === item.path
-                  const canDelete = item.kind === 'worktree' && !item.isMain
-
-                  return (
-                    <SortableAgentItem key={item.path} id={item.path}>
-                      {({ listeners }) => (
-                    <div
-                      className={cn(
-                        'group flex items-center gap-2 rounded-md px-2 py-1',
-                        isSelected ? 'bg-item-active text-foreground' : 'text-secondary hover:bg-item-hover'
-                      )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setSelectedWorkspacePath(item.path)}
-                        {...listeners}
-                        className="flex min-w-0 flex-1 cursor-grab items-center gap-2 text-left active:cursor-grabbing"
-                      >
-                        <span className="flex size-4 shrink-0 items-center justify-center text-icon">
-                          {item.kind === 'directory' ? (
-                            <VscFolder className="size-3.5" />
-                          ) : (
-                            <VscSourceControl className="size-3.5" />
-                          )}
-                        </span>
-
-                        <span className="min-w-0 flex-1 leading-tight">
-                          <span className="block truncate text-[10px] uppercase tracking-[0.14em] text-muted">
-                            {getWorkspaceMeta(item)}
-                          </span>
-                          <span className="block truncate text-xs">{item.name}</span>
-                        </span>
-                      </button>
-
-                      {canDelete ? (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-5 rounded opacity-0 group-hover:opacity-100"
-                          onClick={() => void handleDeleteWorktree(item)}
-                          aria-label={`Borrar ${item.name}`}
-                          title="Borrar worktree"
-                        >
-                          <VscTrash className="size-3.5" />
-                        </Button>
-                      ) : null}
-                    </div>
-                      )}
-                    </SortableAgentItem>
-                  )
-                })}
-                  </SortableContext>
-                </DndContext>
-              </div>
-            </ScrollArea>
-          ) : null}
-
           <div className="flex h-9 shrink-0 items-center border-b">
             <button
               type="button"
               onClick={() => setAgentsCollapsed((c) => !c)}
-              className="flex min-w-0 flex-1 items-center gap-2 px-4 text-[11px] uppercase tracking-[0.18em] text-muted hover:text-secondary"
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-4 text-sm uppercase tracking-[0.18em] text-muted hover:text-secondary"
             >
               {agentsCollapsed ? (
                 <VscChevronRight className="size-3.5" />
@@ -1132,7 +767,7 @@ export function App() {
                 <VscChevronDown className="size-3.5" />
               )}
               Agents
-              <span className="ml-1 font-mono text-[10px] normal-case tracking-normal text-muted">
+              <span className="ml-1 font-mono text-sm normal-case tracking-normal text-muted">
                 {tabs.length}
               </span>
             </button>
@@ -1141,148 +776,284 @@ export function App() {
               size="icon"
               variant="ghost"
               className="mr-2 size-7 rounded-md"
-              onClick={() => {
-                setTabs((current) =>
-                  [...current].sort((a, b) => {
-                    const labelA = a.workspacePath.split('/').pop() ?? ''
-                    const labelB = b.workspacePath.split('/').pop() ?? ''
-                    return labelA.localeCompare(labelB)
-                  })
-                )
-              }}
-              aria-label="Sort alphabetically"
-              title="Sort alphabetically"
+              onClick={() => void pickProjectMutation.mutateAsync()}
+              aria-label="Open folder"
+              title="Open folder"
             >
-              <VscSortPrecedence className="size-4" />
+              <VscFolderOpened className="size-4" />
             </Button>
           </div>
 
           {!agentsCollapsed ? (
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="px-2 py-2">
+            <ScrollArea className="min-h-0 min-w-0 flex-1">
+              <div className="overflow-hidden px-2 py-2">
                 {tabs.length === 0 ? (
                   <div className="px-2 py-2 text-sm text-muted">Sin agentes activos</div>
                 ) : null}
 
-                <DndContext
-                  sensors={dndSensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleAgentDragEnd}
-                >
-                  <SortableContext items={tabs.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-                {tabs.map((tab) => {
-                  const workspace = workspacesQuery.data?.find((w) => w.path === tab.workspacePath)
-                  const workspaceLabel = workspace?.branch ?? workspace?.name ?? tab.workspacePath.split('/').pop() ?? 'workspace'
-                  const projects = appConfigQuery.data?.projects ?? []
-                  const ownerProject = projects.find((project) => {
-                    if (tab.workspacePath === project.rootPath) return true
-                    if (project.worktreeRoot && tab.workspacePath.startsWith(project.worktreeRoot)) return true
-                    return false
-                  })
-                  const projectLabel = ownerProject?.name ?? ''
-                  const headerLabel = projectLabel ? `${projectLabel} / ${workspaceLabel}` : workspaceLabel
-                  const claudeInfo = tab.pid
-                    ? claudeSessions.find((s) => s.shellPid === tab.pid) ?? null
-                    : null
-                  const opencodeInfo = tab.pid
-                    ? opencodeSessions.find((s) => s.shellPid === tab.pid) ?? null
-                    : null
-                  const isClaude = claudeInfo !== null || isClaudeProcess(tab.processName)
-                  const isOpenCode = opencodeInfo !== null || isOpenCodeProcess(tab.processName)
-                  const isAgent = isClaude || isOpenCode
-                  const isActive =
-                    selectedWorkspacePath === tab.workspacePath &&
-                    activeTabId[tab.workspacePath] === tab.id
-                  const agentInfo = isOpenCode ? opencodeInfo : claudeInfo
-                  const agentPrompt = isOpenCode ? null : (agentInfo as ClaudeSessionInfo | null)?.prompt
-                  const label = isAgent
-                    ? (agentInfo?.name ?? agentPrompt ?? (isOpenCode ? 'OpenCode' : 'Claude'))
-                    : 'Terminal'
-
+                {groupedAgents.map((group) => {
+                  const isProjectCollapsed = collapsedAgentProjects.has(group.projectPath)
                   return (
-                    <SortableAgentItem key={tab.id} id={tab.id}>
-                      {({ listeners }) => (
-                    <button
-                      type="button"
-                      onClick={() => handleSelectTab(tab)}
-                      {...listeners}
-                      className={cn(
-                        'group flex w-full cursor-grab items-center gap-2 rounded-md px-2 py-1 text-left active:cursor-grabbing',
-                        isActive ? 'bg-item-active text-foreground' : 'text-secondary hover:bg-item-hover'
-                      )}
-                    >
-                      <span className="relative flex size-4 shrink-0 items-center justify-center text-icon">
-                        {isAgent ? (
-                          <span
-                            className={cn(
-                              'text-[10px] font-bold',
-                              agentInfo?.status === 'working' && 'text-green-400',
-                              agentInfo?.status === 'idle' && 'text-red-400'
-                            )}
-                          >
-                            {isOpenCode ? 'O' : 'C'}
-                          </span>
-                        ) : (
-                          <VscTerminalBash className="size-3.5" />
-                        )}
-                        {isAgent && agentInfo ? (
-                          <span
-                            className={cn(
-                              'absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full ring-1 ring-sidebar',
-                              agentInfo.status === 'working' ? 'bg-green-400' : 'bg-red-400 animate-pulse'
-                            )}
-                            title={agentInfo.status === 'working' ? 'Working...' : 'Needs input'}
-                          />
-                        ) : null}
-                      </span>
-
-                      <span className="min-w-0 flex-1 leading-tight">
-                        <span className="block max-w-[220px] truncate text-[10px] uppercase tracking-[0.14em] text-muted">
-                          {headerLabel}
-                        </span>
-                        <span className="block max-w-[220px] truncate text-xs">{label}</span>
-                      </span>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        aria-label="Kill agent"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleKillAgent(tab.id)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            handleKillAgent(tab.id)
-                          }
-                        }}
-                        className="ml-1 flex size-5 shrink-0 items-center justify-center rounded text-icon opacity-0 hover:bg-item-hover hover:text-foreground group-hover:opacity-100"
+                  <div key={group.projectPath} className="mb-1 overflow-hidden">
+                    <div className="group flex min-w-0 items-center gap-2 px-2 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCollapsedAgentProjects((prev) => {
+                            const next = new Set(prev)
+                            next.has(group.projectPath) ? next.delete(group.projectPath) : next.add(group.projectPath)
+                            return next
+                          })
+                        }
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-base text-muted hover:text-secondary"
                       >
-                        <VscClose className="size-3.5" />
-                      </span>
-                    </button>
-                      )}
-                    </SortableAgentItem>
+                        {isProjectCollapsed ? (
+                          <VscChevronRight className="size-3.5 shrink-0" />
+                        ) : (
+                          <VscChevronDown className="size-3.5 shrink-0" />
+                        )}
+                        <VscRepo className="size-3.5 shrink-0" />
+                        <span className="truncate font-medium">{group.project?.name ?? 'Unknown'}</span>
+                      </button>
+
+                      {group.project?.mode === 'git' ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-5 shrink-0 rounded opacity-0 group-hover:opacity-100"
+                          onClick={() => setDraftWorktreeName((c) => (c !== null ? null : generateRandomWorktreeName()))}
+                          aria-label="Create worktree"
+                          title="Create worktree"
+                        >
+                          <VscAdd className="size-3.5" />
+                        </Button>
+                      ) : null}
+
+                      {group.project && (appConfigQuery.data?.projects.length ?? 0) > 1 ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-5 shrink-0 rounded opacity-0 group-hover:opacity-100"
+                          onClick={() => group.project && void handleDeleteProject(group.project)}
+                          aria-label={`Remove ${group.project.name}`}
+                          title="Remove project"
+                        >
+                          <VscTrash className="size-3.5" />
+                        </Button>
+                      ) : null}
+                    </div>
+
+                    {!isProjectCollapsed && group.worktrees.map((wt) => {
+                      const isWtCollapsed = collapsedAgentWorktrees.has(wt.path)
+                      return (
+                      <div key={wt.path}>
+                        <div className="group flex min-w-0 items-center py-1 pl-7 pr-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCollapsedAgentWorktrees((prev) => {
+                                const next = new Set(prev)
+                                next.has(wt.path) ? next.delete(wt.path) : next.add(wt.path)
+                                return next
+                              })
+                            }
+                            className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-base text-muted hover:text-secondary"
+                          >
+                            {isWtCollapsed ? (
+                              <VscChevronRight className="size-3 shrink-0" />
+                            ) : (
+                              <VscChevronDown className="size-3 shrink-0" />
+                            )}
+                            <VscSourceControl className="size-3 shrink-0" />
+                            <span className="truncate">{wt.label}</span>
+                          </button>
+
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-5 shrink-0 rounded opacity-0 group-hover:opacity-100"
+                            onClick={() => {
+                              const tab = createTab(wt.path, defaultTabCommand)
+                              setTabs((current) => [...current, tab])
+                              setActiveTabId((current) => ({ ...current, [wt.path]: tab.id }))
+                              setSelectedWorkspacePath(wt.path)
+                            }}
+                            aria-label="New agent"
+                            title="New agent"
+                          >
+                            <VscAdd className="size-3.5" />
+                          </Button>
+
+                          {(() => {
+                            const wsData = (workspacesQuery.data ?? []).find((w) => w.path === wt.path)
+                            const canDelete = wsData?.kind === 'worktree' && !wsData.isMain
+                            return canDelete && wsData ? (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="size-5 shrink-0 rounded opacity-0 group-hover:opacity-100"
+                                onClick={() => void handleDeleteWorktree(wsData)}
+                                aria-label={`Delete ${wt.label}`}
+                                title="Delete worktree"
+                              >
+                                <VscTrash className="size-3.5" />
+                              </Button>
+                            ) : null
+                          })()}
+                        </div>
+
+                        {!isWtCollapsed && wt.tabs.map((tab) => {
+                          const claudeInfo = tab.pid
+                            ? claudeSessions.find((s) => s.shellPid === tab.pid) ?? null
+                            : null
+                          const codexInfo = tab.pid
+                            ? codexSessions.find((s) => s.shellPid === tab.pid) ?? null
+                            : null
+                          const isClaude = claudeInfo !== null || isClaudeProcess(tab.processName)
+                          const isCodex = codexInfo !== null || isCodexProcess(tab.processName)
+                          const isOpenCode = isOpenCodeProcess(tab.processName)
+                          const isAgent = isClaude || isCodex || isOpenCode
+                          const isActive =
+                            selectedWorkspacePath === tab.workspacePath &&
+                            activeTabId[tab.workspacePath] === tab.id
+                          const agentInfo = isCodex ? codexInfo : claudeInfo
+                          const agentPrompt = (agentInfo as ClaudeSessionInfo | CodexSessionInfo | null)?.prompt
+                          const defaultLabel = isAgent
+                            ? (agentInfo?.name ?? agentPrompt ?? (isOpenCode ? 'OpenCode' : isCodex ? 'Codex' : 'Claude'))
+                            : 'Terminal'
+                          const label = customTabNames[tab.id] || defaultLabel
+
+                          return (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => handleSelectTab(tab)}
+                              className={cn(
+                                'group flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md py-1.5 pl-[52px] pr-2 text-left text-base',
+                                isActive ? 'bg-item-active text-foreground' : 'text-secondary hover:bg-item-hover'
+                              )}
+                            >
+                              <span className="relative flex size-4 shrink-0 items-center justify-center text-icon">
+                                {isAgent ? (
+                                  isClaude ? (
+                                    <BsClaude
+                                      className={cn(
+                                        'size-3',
+                                        agentInfo?.status === 'working' && 'text-green-400',
+                                        agentInfo?.status === 'idle' && 'text-red-400'
+                                      )}
+                                    />
+                                  ) : (
+                                    <span
+                                      className={cn(
+                                        'text-[10px] font-bold',
+                                        agentInfo?.status === 'working' && 'text-green-400',
+                                        agentInfo?.status === 'idle' && 'text-red-400'
+                                      )}
+                                    >
+                                      {isOpenCode ? 'O' : 'C'}
+                                    </span>
+                                  )
+                                ) : (
+                                  <VscTerminalBash className="size-3.5" />
+                                )}
+                                {isAgent && agentInfo ? (
+                                  <span
+                                    className={cn(
+                                      'absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full ring-1 ring-sidebar',
+                                      agentInfo.status === 'working' ? 'bg-green-400' : 'bg-red-400 animate-pulse'
+                                    )}
+                                    title={agentInfo.status === 'working' ? 'Working...' : 'Needs input'}
+                                  />
+                                ) : null}
+                              </span>
+
+                              {editingTabId === tab.id ? (
+                                <input
+                                  autoFocus
+                                  className="min-w-0 rounded border border-border bg-transparent px-1 text-sm text-foreground outline-none"
+                                  value={editingValue}
+                                  onChange={(e) => setEditingValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation()
+                                    if (e.key === 'Enter') {
+                                      const trimmed = editingValue.trim()
+                                      if (trimmed) {
+                                        setCustomTabNames((prev) => ({ ...prev, [tab.id]: trimmed }))
+                                      } else {
+                                        setCustomTabNames((prev) => {
+                                          const next = { ...prev }
+                                          delete next[tab.id]
+                                          return next
+                                        })
+                                      }
+                                      setEditingTabId(null)
+                                    } else if (e.key === 'Escape') {
+                                      setEditingTabId(null)
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    const trimmed = editingValue.trim()
+                                    if (trimmed) {
+                                      setCustomTabNames((prev) => ({ ...prev, [tab.id]: trimmed }))
+                                    } else {
+                                      setCustomTabNames((prev) => {
+                                        const next = { ...prev }
+                                        delete next[tab.id]
+                                        return next
+                                      })
+                                    }
+                                    setEditingTabId(null)
+                                  }}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (
+                                <span
+                                  className="min-w-0 truncate text-base"
+                                  onDoubleClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditingTabId(tab.id)
+                                    setEditingValue(customTabNames[tab.id] || '')
+                                  }}
+                                >
+                                  {label}
+                                </span>
+                              )}
+
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                aria-label="Kill agent"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleKillAgent(tab.id)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    handleKillAgent(tab.id)
+                                  }
+                                }}
+                                className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-icon opacity-0 hover:bg-item-hover hover:text-foreground group-hover:opacity-100"
+                              >
+                                <VscClose className="size-3.5" />
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      )
+                    })}
+                  </div>
                   )
                 })}
-                  </SortableContext>
-                </DndContext>
               </div>
             </ScrollArea>
           ) : null}
         </aside>
-
-        {/* Resize handle */}
-        {sidebarOpen ? (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            onMouseDown={handleSidebarResize}
-            className="w-1 shrink-0 cursor-col-resize transition-colors hover:bg-focus-ring active:bg-focus-ring"
-          />
-        ) : null}
 
         <main className="flex min-w-0 flex-1 flex-col bg-surface">
           <div className="drag-region flex h-11 shrink-0 items-center border-b">
@@ -1307,14 +1078,15 @@ export function App() {
                 const claudeInfo = tab.pid
                   ? claudeSessions.find((s) => s.shellPid === tab.pid) ?? null
                   : null
-                const opencodeInfo = tab.pid
-                  ? opencodeSessions.find((s) => s.shellPid === tab.pid) ?? null
+                const codexInfo = tab.pid
+                  ? codexSessions.find((s) => s.shellPid === tab.pid) ?? null
                   : null
                 const isClaude = claudeInfo !== null || isClaudeProcess(tab.processName)
-                const isOpenCode = opencodeInfo !== null || isOpenCodeProcess(tab.processName)
-                const isAgent = isClaude || isOpenCode
-                const agentInfo = isOpenCode ? opencodeInfo : claudeInfo
-                const agentPrompt = isOpenCode ? null : (agentInfo as ClaudeSessionInfo | null)?.prompt
+                const isCodex = codexInfo !== null || isCodexProcess(tab.processName)
+                const isOpenCode = isOpenCodeProcess(tab.processName)
+                const isAgent = isClaude || isCodex || isOpenCode
+                const agentInfo = isCodex ? codexInfo : claudeInfo
+                const agentPrompt = (agentInfo as ClaudeSessionInfo | CodexSessionInfo | null)?.prompt
 
                 return (
                   <button
@@ -1338,15 +1110,25 @@ export function App() {
                     ) : null}
                     <span className="relative flex size-3.5 shrink-0 items-center justify-center">
                       {isAgent ? (
-                        <span
-                          className={cn(
-                            'text-[10px] font-bold',
-                            agentInfo?.status === 'working' && 'text-green-400',
-                            agentInfo?.status === 'idle' && 'text-red-400'
-                          )}
-                        >
-                          {isOpenCode ? 'O' : 'C'}
-                        </span>
+                        isClaude ? (
+                          <BsClaude
+                            className={cn(
+                              'size-2.5',
+                              agentInfo?.status === 'working' && 'text-green-400',
+                              agentInfo?.status === 'idle' && 'text-red-400'
+                            )}
+                          />
+                        ) : (
+                          <span
+                            className={cn(
+                              'text-[10px] font-bold',
+                              agentInfo?.status === 'working' && 'text-green-400',
+                              agentInfo?.status === 'idle' && 'text-red-400'
+                            )}
+                          >
+                            {isOpenCode ? 'O' : 'C'}
+                          </span>
+                        )
                       ) : (
                         <VscTerminalBash className="size-3.5" />
                       )}
@@ -1362,7 +1144,7 @@ export function App() {
                     </span>
                     <span className="truncate">
                       {isAgent
-                        ? (agentInfo?.name ?? agentPrompt ?? (isOpenCode ? 'OpenCode' : 'Claude'))
+                        ? (agentInfo?.name ?? agentPrompt ?? (isOpenCode ? 'OpenCode' : isCodex ? 'Codex' : 'Claude'))
                         : (selectedWorkspace?.branch ?? selectedWorkspace?.name ?? 'Terminal')}
                     </span>
                     {currentTabs.length > 1 ? (

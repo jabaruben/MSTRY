@@ -1,4 +1,4 @@
-# Electree
+# MSTRY
 
 A terminal with superpowers for orchestrating AI agents across your projects.
 
@@ -8,7 +8,7 @@ As a developer you work on multiple projects simultaneously, and within each pro
 
 ## The idea
 
-Electree organizes your work in a simple hierarchy:
+MSTRY organizes your work in a simple hierarchy:
 
 ```
 Project
@@ -49,10 +49,10 @@ npm run dev
 
 1. Open a project folder (it auto-detects if it's a git repo).
 2. If it's a git repo, the sidebar shows all existing worktrees.
-3. Create new worktrees from the sidebar — Electree runs `git worktree add` with a new branch for you.
+3. Create new worktrees from the sidebar — MSTRY runs `git worktree add` with a new branch for you.
 4. Select a worktree to open a terminal session rooted in that worktree's directory.
 5. Open multiple terminal tabs per worktree (`Cmd+T`) to run agents in parallel.
-6. Delete worktrees when done — Electree removes the worktree folder, prunes Git metadata, and deletes the linked local branch.
+6. Delete worktrees when done — MSTRY removes the worktree folder, prunes Git metadata, and deletes the linked local branch.
 
 ## Notes
 

@@ -3,13 +3,13 @@ import { exec } from 'node:child_process'
 import { access, readlink } from 'node:fs/promises'
 import path from 'node:path'
 
-const SYMLINK_PATH = '/usr/local/bin/electree'
+const SYMLINK_PATH = '/usr/local/bin/mstry'
 
 const getCliScriptPath = (): string => {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'cli', 'electree.sh')
+    return path.join(process.resourcesPath, 'cli', 'mstry.sh')
   }
-  return path.join(__dirname, '../../resources/cli/electree.sh')
+  return path.join(__dirname, '../../resources/cli/mstry.sh')
 }
 
 export const isCliInstalled = async (): Promise<boolean> => {
@@ -52,8 +52,8 @@ export const installCli = async (): Promise<void> => {
         dialog.showMessageBox({
           type: 'info',
           title: 'Comando instalado',
-          message: 'El comando "electree" se ha instalado correctamente.',
-          detail: 'Ahora puedes usar "electree ." desde tu terminal.'
+          message: 'El comando "mstry" se ha instalado correctamente.',
+          detail: 'Ahora puedes usar "mstry ." desde tu terminal.'
         })
       }
       resolve()
@@ -77,7 +77,7 @@ export const uninstallCli = async (): Promise<void> => {
         dialog.showMessageBox({
           type: 'info',
           title: 'Comando desinstalado',
-          message: 'El comando "electree" se ha eliminado del PATH.'
+          message: 'El comando "mstry" se ha eliminado del PATH.'
         })
       }
       resolve()

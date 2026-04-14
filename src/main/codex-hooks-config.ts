@@ -39,10 +39,10 @@ type HooksFile = Record<string, unknown> & {
 const shellQuote = (value: string) => `'${value.replace(/'/g, `'\"'\"'`)}'`
 
 const getHookScriptPath = () => {
-  const devPath = path.join(__dirname, '../../resources/hooks/electree-codex-hook.sh')
+  const devPath = path.join(__dirname, '../../resources/hooks/mstry-codex-hook.sh')
   if (existsSync(devPath)) return devPath
 
-  const prodPath = path.join(process.resourcesPath, 'hooks/electree-codex-hook.sh')
+  const prodPath = path.join(process.resourcesPath, 'hooks/mstry-codex-hook.sh')
   if (existsSync(prodPath)) return prodPath
 
   return devPath
@@ -65,7 +65,7 @@ const writeHooksFile = (settings: HooksFile) => {
   writeFileSync(CODEX_HOOKS_PATH, JSON.stringify(settings, null, 2) + '\n', 'utf-8')
 }
 
-const isElectreeHook = (entry: HookEntry) => entry.command.includes('electree-codex-hook')
+const isMstryHook = (entry: HookEntry) => entry.command.includes('mstry-codex-hook')
 
 const isCodexFeatureEnabled = (): boolean => {
   if (!existsSync(CODEX_CONFIG_PATH)) return false
@@ -160,7 +160,7 @@ export const isCodexHooksEnabled = (): boolean => {
     if (!matchers) return false
 
     return matchers.some((matcher) =>
-      matcher.hooks.some((hook) => isElectreeHook(hook) && hook.command === currentCommand)
+      matcher.hooks.some((hook) => isMstryHook(hook) && hook.command === currentCommand)
     )
   })
 }
@@ -172,7 +172,7 @@ export const enableCodexHooks = (): void => {
   if (!settings.hooks) settings.hooks = {}
 
   const command = getHookCommand()
-  const electreeHook: HookEntry = { type: 'command', command }
+  const mstryHook: HookEntry = { type: 'command', command }
 
   for (const { event, matcher } of HOOK_DEFINITIONS) {
     if (!settings.hooks[event]) {
@@ -180,18 +180,18 @@ export const enableCodexHooks = (): void => {
     }
 
     const existingMatcher = settings.hooks[event].find((item) =>
-      item.hooks.some(isElectreeHook)
+      item.hooks.some(isMstryHook)
     )
 
     if (existingMatcher) {
       existingMatcher.matcher = matcher
       existingMatcher.hooks = existingMatcher.hooks.map((hook) =>
-        isElectreeHook(hook) ? { ...hook, command } : hook
+        isMstryHook(hook) ? { ...hook, command } : hook
       )
     } else {
       settings.hooks[event].push({
         ...(matcher ? { matcher } : {}),
-        hooks: [electreeHook]
+        hooks: [mstryHook]
       })
     }
   }
@@ -210,7 +210,7 @@ export const disableCodexHooks = (): void => {
     settings.hooks[event] = matchers
       .map((matcher) => ({
         ...matcher,
-        hooks: matcher.hooks.filter((hook) => !isElectreeHook(hook))
+        hooks: matcher.hooks.filter((hook) => !isMstryHook(hook))
       }))
       .filter((matcher) => matcher.hooks.length > 0)
 

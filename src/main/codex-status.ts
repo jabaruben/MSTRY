@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import type { CodexSessionInfo } from '../shared/contracts'
 
-const STATUS_DIR = '/tmp/electree-codex'
+const STATUS_DIR = '/tmp/mstry-codex'
 
 interface RawSessionFile {
   session_id: string
@@ -22,6 +22,7 @@ interface CodexStatusEvents {
 
 export class CodexStatusWatcher extends EventEmitter<CodexStatusEvents> {
   private lastJson = ''
+  private sessions: CodexSessionInfo[] = []
   private pollTimer: ReturnType<typeof setInterval> | null = null
 
   start() {
@@ -35,6 +36,10 @@ export class CodexStatusWatcher extends EventEmitter<CodexStatusEvents> {
       clearInterval(this.pollTimer)
       this.pollTimer = null
     }
+  }
+
+  getSessions(): CodexSessionInfo[] {
+    return [...this.sessions]
   }
 
   private poll() {
@@ -70,6 +75,8 @@ export class CodexStatusWatcher extends EventEmitter<CodexStatusEvents> {
         // skip malformed files
       }
     }
+
+    this.sessions = sessions
 
     const json = JSON.stringify(sessions)
     if (json !== this.lastJson) {

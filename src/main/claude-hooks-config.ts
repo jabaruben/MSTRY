@@ -8,13 +8,13 @@ const HOOK_EVENTS = ['PreToolUse', 'UserPromptSubmit', 'Stop', 'SessionEnd'] as 
 
 const getHookCommand = () => {
   // Use the hook script bundled alongside the app.
-  // In dev: <repo>/resources/hooks/electree-claude-hook.sh
-  // In prod: <app>/Resources/hooks/electree-claude-hook.sh (via electron-builder extraResources)
-  const devPath = path.join(__dirname, '../../resources/hooks/electree-claude-hook.sh')
+  // In dev: <repo>/resources/hooks/mstry-claude-hook.sh
+  // In prod: <app>/Resources/hooks/mstry-claude-hook.sh (via electron-builder extraResources)
+  const devPath = path.join(__dirname, '../../resources/hooks/mstry-claude-hook.sh')
   if (existsSync(devPath)) return devPath
 
   // electron-builder packages extraResources next to app.asar
-  const prodPath = path.join(process.resourcesPath, 'hooks/electree-claude-hook.sh')
+  const prodPath = path.join(process.resourcesPath, 'hooks/mstry-claude-hook.sh')
   if (existsSync(prodPath)) return prodPath
 
   return devPath // fallback
@@ -48,8 +48,8 @@ const writeSettings = (settings: ClaudeSettings) => {
   writeFileSync(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n', 'utf-8')
 }
 
-const isElectreeHook = (entry: HookEntry) =>
-  entry.command.includes('electree-claude-hook')
+const isMstryHook = (entry: HookEntry) =>
+  entry.command.includes('mstry-claude-hook')
 
 export const isClaudeHooksEnabled = (): boolean => {
   const settings = readSettings()
@@ -58,7 +58,7 @@ export const isClaudeHooksEnabled = (): boolean => {
   return HOOK_EVENTS.every((event) => {
     const matchers = settings.hooks?.[event]
     if (!matchers) return false
-    return matchers.some((m) => m.hooks.some(isElectreeHook))
+    return matchers.some((m) => m.hooks.some(isMstryHook))
   })
 }
 
@@ -67,7 +67,7 @@ export const enableClaudeHooks = (): void => {
   if (!settings.hooks) settings.hooks = {}
 
   const command = getHookCommand()
-  const electreeHook: HookEntry = { type: 'command', command }
+  const mstryHook: HookEntry = { type: 'command', command }
 
   for (const event of HOOK_EVENTS) {
     if (!settings.hooks[event]) {
@@ -76,13 +76,13 @@ export const enableClaudeHooks = (): void => {
 
     // Check if already registered
     const alreadyExists = settings.hooks[event].some((m) =>
-      m.hooks.some(isElectreeHook)
+      m.hooks.some(isMstryHook)
     )
 
     if (!alreadyExists) {
       settings.hooks[event].push({
         matcher: '',
-        hooks: [electreeHook]
+        hooks: [mstryHook]
       })
     }
   }
@@ -101,7 +101,7 @@ export const disableClaudeHooks = (): void => {
     settings.hooks[event] = matchers
       .map((m) => ({
         ...m,
-        hooks: m.hooks.filter((h) => !isElectreeHook(h))
+        hooks: m.hooks.filter((h) => !isMstryHook(h))
       }))
       .filter((m) => m.hooks.length > 0)
 

@@ -11,8 +11,12 @@ import {
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
+import { checkAllTools, installTool } from './coding-tools'
 import { installCli, isCliInstalled, uninstallCli } from './cli-install'
 import { disableClaudeHooks, enableClaudeHooks, isClaudeHooksEnabled } from './claude-hooks-config'
+import { CodexStatusWatcher } from './codex-status'
+import { disableCodexHooks, enableCodexHooks, isCodexHooksEnabled } from './codex-hooks-config'
+import { disableGeminiHooks, enableGeminiHooks, isGeminiHooksEnabled } from './gemini-hooks-config'
 import {
   addProjectPath,
   getAppConfig,
@@ -39,7 +43,8 @@ import type {
 let mainWindow: BrowserWindow | null = null
 const terminalManager = new TerminalManager()
 const claudeStatus = new ClaudeStatusWatcher()
-const opencodeStatus = new OpenCodeStatusWatcher()
+const codexStatus = new CodexStatusWatcher()
+// const opencodeStatus = new OpenCodeStatusWatcher()
 
 interface ReadyAppConfig extends AppConfig {
   activeProject: Project
@@ -168,6 +173,19 @@ const registerIpc = () => {
   ipcMain.handle('claude:is-hooks-enabled', () => isClaudeHooksEnabled())
   ipcMain.handle('claude:enable-hooks', () => enableClaudeHooks())
   ipcMain.handle('claude:disable-hooks', () => disableClaudeHooks())
+  ipcMain.handle('claude:get-sessions', () => claudeStatus.getSessions())
+
+  ipcMain.handle('codex:is-hooks-enabled', () => isCodexHooksEnabled())
+  ipcMain.handle('codex:enable-hooks', () => enableCodexHooks())
+  ipcMain.handle('codex:disable-hooks', () => disableCodexHooks())
+  ipcMain.handle('codex:get-sessions', () => codexStatus.getSessions())
+
+  ipcMain.handle('gemini:is-hooks-enabled', () => isGeminiHooksEnabled())
+  ipcMain.handle('gemini:enable-hooks', () => enableGeminiHooks())
+  ipcMain.handle('gemini:disable-hooks', () => disableGeminiHooks())
+
+  ipcMain.handle('tools:check-all', () => checkAllTools())
+  ipcMain.handle('tools:install', (_event, toolId: string) => installTool(toolId))
 
   ipcMain.handle('cli:is-installed', () => isCliInstalled())
   ipcMain.handle('cli:install', () => installCli())
@@ -194,13 +212,14 @@ function isTmuxInstalled(): boolean {
 }
 
 app.whenReady().then(async () => {
+  app.setName('MSTRY')
   fixPath()
 
   if (!isTmuxInstalled()) {
     const { response } = await dialog.showMessageBox({
       type: 'error',
       title: 'tmux no encontrado',
-      message: 'Electree necesita tmux para funcionar.',
+      message: 'MSTRY necesita tmux para funcionar.',
       detail:
         'Instálalo con Homebrew ejecutando en tu terminal:\n\n  brew install tmux\n\nDespués vuelve a abrir la aplicación.',
       buttons: ['Cerrar aplicación', 'Copiar comando'],
@@ -310,14 +329,21 @@ app.whenReady().then(async () => {
     }
   })
 
-  opencodeStatus.on('change', (sessions) => {
+  codexStatus.on('change', (sessions) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('opencode:session-change', sessions)
+      mainWindow.webContents.send('codex:session-change', sessions)
     }
   })
 
+  // opencodeStatus.on('change', (sessions) => {
+  //   if (mainWindow && !mainWindow.isDestroyed()) {
+  //     mainWindow.webContents.send('opencode:session-change', sessions)
+  //   }
+  // })
+
   claudeStatus.start()
-  opencodeStatus.start()
+  codexStatus.start()
+  // opencodeStatus.start()
 
   try {
     const persistedTabs = await loadTabState()
@@ -363,7 +389,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   claudeStatus.stop()
-  opencodeStatus.stop()
+  codexStatus.stop()
+  // opencodeStatus.stop()
   // Only detach PTYs — tmux sessions survive for reattach on next launch.
   terminalManager.disposeAll()
 })

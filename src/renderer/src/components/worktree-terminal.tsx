@@ -91,7 +91,7 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
 
     let sessionId: string | null = null
     let disposed = false
-    const electree = getElectronBridge()
+    const bridge = getElectronBridge()
 
     const terminal = new Terminal({
       altClickMovesCursor: false,
@@ -121,7 +121,7 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
 
       event?.preventDefault()
       event?.clipboardData?.setData('text/plain', selection)
-      void electree.clipboard.writeText(selection)
+      void bridge.clipboard.writeText(selection)
       return true
     }
 
@@ -227,10 +227,10 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
       e.preventDefault()
       if (!sessionId || !e.dataTransfer?.files.length) return
       const paths = Array.from(e.dataTransfer.files)
-        .map((f) => electree.webUtils.getPathForFile(f))
+        .map((f) => bridge.webUtils.getPathForFile(f))
         .filter(Boolean)
       if (paths.length) {
-        void electree.terminal.write(sessionId, paths.join(' '))
+        void bridge.terminal.write(sessionId, paths.join(' '))
       }
     }
 
@@ -250,13 +250,13 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
     }
     mql.addEventListener('change', handleThemeChange)
 
-    const offData = electree.terminal.onData((event) => {
+    const offData = bridge.terminal.onData((event) => {
       if (event.sessionId === sessionId) {
         terminal.write(event.data)
       }
     })
 
-    const offExit = electree.terminal.onExit((event) => {
+    const offExit = bridge.terminal.onExit((event) => {
       if (event.sessionId === sessionId) {
         terminal.writeln(`\r\n[process exited with code ${event.exitCode ?? 0}]`)
       }
@@ -266,7 +266,7 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
       fitAddon.fit()
 
       if (sessionId && containerRef.current?.offsetParent) {
-        void electree.terminal.resize(sessionId, terminal.cols, terminal.rows)
+        void bridge.terminal.resize(sessionId, terminal.cols, terminal.rows)
       }
     })
 
@@ -281,32 +281,32 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
       if (sessionId && (terminal.cols !== lastCols || terminal.rows !== lastRows)) {
         lastCols = terminal.cols
         lastRows = terminal.rows
-        void electree.terminal.resize(sessionId, terminal.cols, terminal.rows)
+        void bridge.terminal.resize(sessionId, terminal.cols, terminal.rows)
       }
     }, 200)
 
     const terminalInputDisposable = terminal.onData((data) => {
       if (sessionId) {
-        void electree.terminal.write(sessionId, data)
+        void bridge.terminal.write(sessionId, data)
       }
     })
 
     // Receive Ctrl+key combos forwarded from the main process (which intercepts
     // them via before-input-event to prevent Chromium from swallowing them).
-    const offControlInput = electree.terminal.onControlInput((data) => {
+    const offControlInput = bridge.terminal.onControlInput((data) => {
       console.log('[control-input] received', JSON.stringify(data), { sessionId, active: activeRef.current })
       if (sessionId && activeRef.current) {
         console.log('[control-input] writing to PTY session', sessionId)
-        void electree.terminal.write(sessionId, data)
+        void bridge.terminal.write(sessionId, data)
       }
     })
 
     // Reattach to an existing tmux session or create a new one.
     const sessionPromise = tmuxSessionName
-      ? electree.terminal
+      ? bridge.terminal
           .attachSession({ tmuxSessionName, cols: terminal.cols, rows: terminal.rows })
           .then((r) => ({ ...r, tmuxSessionName }))
-      : electree.terminal.createSession({ cwd, cols: terminal.cols, rows: terminal.rows })
+      : bridge.terminal.createSession({ cwd, cols: terminal.cols, rows: terminal.rows })
 
     void sessionPromise
       .then((result) => {
@@ -317,12 +317,12 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
         sessionId = result.sessionId
         sessionIdRef.current = result.sessionId
         if (activeRef.current) {
-          void electree.terminal.setActiveSession(result.sessionId)
+          void bridge.terminal.setActiveSession(result.sessionId)
         }
         onSessionCreatedRef.current?.(result.sessionId, result.pid, result.tmuxSessionName)
 
         if (!tmuxSessionName && initialCommand) {
-          void electree.terminal.write(result.sessionId, initialCommand + '\n')
+          void bridge.terminal.write(result.sessionId, initialCommand + '\n')
         }
       })
       .catch((error: unknown) => {
@@ -345,7 +345,7 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
       screen?.removeEventListener('mousedown', forceSelectionOnMouseDown, { capture: true })
 
       if (sessionId) {
-        void electree.terminal.detach(sessionId)
+        void bridge.terminal.detach(sessionId)
       }
 
       terminal.dispose()
@@ -368,11 +368,11 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
       return
     }
 
-    const electree = getElectronBridge()
+    const bridge = getElectronBridge()
 
     const sid = sessionIdRef.current
     if (sid) {
-      void electree.terminal.setActiveSession(sid)
+      void bridge.terminal.setActiveSession(sid)
     }
 
     requestAnimationFrame(() => {
@@ -380,7 +380,7 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
       terminal.focus()
 
       if (sid) {
-        void electree.terminal.resize(sid, terminal.cols, terminal.rows)
+        void bridge.terminal.resize(sid, terminal.cols, terminal.rows)
       }
     })
   }, [active])

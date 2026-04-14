@@ -144,7 +144,7 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
     event.preventDefault()
 
     if (!canSaveDefaultTabCommand) {
-      setCommandError('Reinicia Electree para cargar el nuevo bridge de settings y vuelve a intentarlo.')
+      setCommandError('Reinicia MSTRY para cargar el nuevo bridge de settings y vuelve a intentarlo.')
       return
     }
 
@@ -244,7 +244,7 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
               </div>
             ) : !canSaveDefaultTabCommand ? (
               <div className="mt-3 rounded-lg bg-red-500/[0.06] px-3 py-2 text-xs text-error">
-                Esta ventana sigue usando una version anterior del bridge. Reinicia Electree para activar esta opcion.
+                Esta ventana sigue usando una version anterior del bridge. Reinicia MSTRY para activar esta opcion.
               </div>
             ) : commandSaved ? (
               <div className="mt-3 rounded-lg bg-overlay px-3 py-2 text-xs text-secondary">
@@ -262,8 +262,8 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">Comando en PATH</p>
                 <p className="mt-1 text-xs text-muted">
-                  Instala el comando <code className="font-mono text-secondary">electree</code> para abrir proyectos
-                  desde la terminal con <code className="font-mono text-secondary">electree .</code>
+                  Instala el comando <code className="font-mono text-secondary">mstry</code> para abrir proyectos
+                  desde la terminal con <code className="font-mono text-secondary">mstry .</code>
                 </p>
               </div>
 
