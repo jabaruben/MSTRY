@@ -55,6 +55,34 @@ const lightTheme: ITheme = {
 const getTerminalTheme = () =>
   window.matchMedia('(prefers-color-scheme: dark)').matches ? darkTheme : lightTheme
 
+const DEFAULT_FONT_SIZE = 13
+const MIN_FONT_SIZE = 6
+const MAX_FONT_SIZE = 48
+const FONT_SIZE_STORAGE_KEY = 'electree:terminalFontSize'
+const FONT_SIZE_EVENT = 'electree:terminalFontSizeChange'
+
+const getStoredFontSize = (): number => {
+  try {
+    const raw = localStorage.getItem(FONT_SIZE_STORAGE_KEY)
+    const n = raw ? Number(raw) : NaN
+    if (Number.isFinite(n) && n >= MIN_FONT_SIZE && n <= MAX_FONT_SIZE) return n
+  } catch {
+    // ignore
+  }
+  return DEFAULT_FONT_SIZE
+}
+
+const setStoredFontSize = (size: number) => {
+  try {
+    localStorage.setItem(FONT_SIZE_STORAGE_KEY, String(size))
+  } catch {
+    // ignore
+  }
+  window.dispatchEvent(new CustomEvent<number>(FONT_SIZE_EVENT, { detail: size }))
+}
+
+const clampFontSize = (n: number) => Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, n))
+
 interface WorktreeTerminalProps {
   active: boolean
   cwd: string
@@ -101,7 +129,7 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
       macOptionIsMeta: true,
       fontFamily:
         '"SF Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-      fontSize: 13,
+      fontSize: getStoredFontSize(),
       fontWeight: '400',
       lineHeight: 1.35,
       letterSpacing: 0.1,
@@ -142,6 +170,40 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
           event.stopPropagation()
         }
         return false
+      }
+
+      // Zoom shortcuts: Cmd/Ctrl +  /  -  /  0. Accept both '=' and '+' (and numpad variants).
+      const isZoomModifier =
+        (event.metaKey && !event.ctrlKey && !event.altKey) ||
+        (event.ctrlKey && !event.metaKey && !event.altKey)
+      if (isZoomModifier) {
+        const isZoomIn =
+          event.key === '+' ||
+          event.key === '=' ||
+          event.code === 'Equal' ||
+          event.code === 'NumpadAdd'
+        const isZoomOut =
+          event.key === '-' ||
+          event.key === '_' ||
+          event.code === 'Minus' ||
+          event.code === 'NumpadSubtract'
+        const isZoomReset = event.key === '0' || event.code === 'Digit0' || event.code === 'Numpad0'
+
+        if (isZoomIn || isZoomOut || isZoomReset) {
+          event.preventDefault()
+          event.stopPropagation()
+          const current =
+            typeof terminal.options.fontSize === 'number'
+              ? terminal.options.fontSize
+              : DEFAULT_FONT_SIZE
+          const next = isZoomReset
+            ? DEFAULT_FONT_SIZE
+            : clampFontSize(current + (isZoomIn ? 1 : -1))
+          if (next !== current) {
+            setStoredFontSize(next)
+          }
+          return false
+        }
       }
 
       // Only intercept Cmd (metaKey) shortcuts for tab management.
@@ -250,6 +312,22 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
     }
     mql.addEventListener('change', handleThemeChange)
 
+    const handleFontSizeChange = (event: Event) => {
+      const detail = (event as CustomEvent<number>).detail
+      const next = typeof detail === 'number' ? detail : getStoredFontSize()
+      if (terminal.options.fontSize === next) return
+      terminal.options.fontSize = next
+      try {
+        fitAddon.fit()
+      } catch {
+        // ignore fit errors when container not measured yet
+      }
+      if (sessionId && containerRef.current?.offsetParent) {
+        void bridge.terminal.resize(sessionId, terminal.cols, terminal.rows)
+      }
+    }
+    window.addEventListener(FONT_SIZE_EVENT, handleFontSizeChange)
+
     const offData = bridge.terminal.onData((event) => {
       if (event.sessionId === sessionId) {
         terminal.write(event.data)
@@ -334,6 +412,7 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
       disposed = true
       clearInterval(fitPollInterval)
       mql.removeEventListener('change', handleThemeChange)
+      window.removeEventListener(FONT_SIZE_EVENT, handleFontSizeChange)
       resizeObserver.disconnect()
       offData()
       offExit()
