@@ -7,9 +7,18 @@ interface Props {
   expanded: Set<string>
   onToggle: (relativePath: string) => void
   statusIndex: StatusIndex
+  selectedFilePath: string | null
+  onSelectFile: (filePath: string) => void
 }
 
-export function FileTree({ workspacePath, expanded, onToggle, statusIndex }: Props) {
+export function FileTree({
+  workspacePath,
+  expanded,
+  onToggle,
+  statusIndex,
+  selectedFilePath,
+  onSelectFile
+}: Props) {
   const rootQuery = useDirectory(workspacePath, '', true)
 
   if (rootQuery.isPending) {
@@ -39,6 +48,8 @@ export function FileTree({ workspacePath, expanded, onToggle, statusIndex }: Pro
           expanded={expanded}
           onToggle={onToggle}
           statusIndex={statusIndex}
+          selectedFilePath={selectedFilePath}
+          onSelectFile={onSelectFile}
         />
       ))}
     </div>

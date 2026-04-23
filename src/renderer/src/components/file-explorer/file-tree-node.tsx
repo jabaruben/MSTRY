@@ -19,6 +19,8 @@ interface Props {
   expanded: Set<string>
   onToggle: (relativePath: string) => void
   statusIndex: StatusIndex
+  selectedFilePath: string | null
+  onSelectFile: (filePath: string) => void
 }
 
 export function FileTreeNode({
@@ -27,7 +29,9 @@ export function FileTreeNode({
   workspacePath,
   expanded,
   onToggle,
-  statusIndex
+  statusIndex,
+  selectedFilePath,
+  onSelectFile
 }: Props) {
   const isExpanded = expanded.has(entry.relativePath)
   const directoryQuery = useDirectory(
@@ -41,11 +45,13 @@ export function FileTreeNode({
     ? statusIndex.dirIndex.get(entry.relativePath) ?? null
     : null
 
+  const isSelected = !entry.isDirectory && entry.path === selectedFilePath
   const rowColor = fileStatus
     ? statusColorClass[fileStatus.status]
     : dirAggregate && dirAggregate.changedCount > 0
       ? 'text-foreground'
       : 'text-secondary'
+  const rowStateClass = isSelected ? 'bg-item-active text-foreground' : rowColor
 
   const showDirStats = entry.isDirectory && !isExpanded && dirAggregate
   const statsAdded = fileStatus?.added ?? (showDirStats ? dirAggregate!.added : 0)
@@ -54,7 +60,10 @@ export function FileTreeNode({
   const handleClick = () => {
     if (entry.isDirectory) {
       onToggle(entry.relativePath)
+      return
     }
+
+    onSelectFile(entry.path)
   }
 
   return (
@@ -65,7 +74,7 @@ export function FileTreeNode({
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         className={cn(
           'group flex w-full min-w-0 items-center gap-1.5 py-0.5 pr-2 text-left text-sm hover:bg-item-hover',
-          rowColor,
+          rowStateClass,
           fileStatus?.status === 'deleted' && 'line-through opacity-80',
           fileStatus?.status === 'ignored' && 'opacity-60'
         )}
@@ -117,6 +126,8 @@ export function FileTreeNode({
               expanded={expanded}
               onToggle={onToggle}
               statusIndex={statusIndex}
+              selectedFilePath={selectedFilePath}
+              onSelectFile={onSelectFile}
             />
           ))
         : null}

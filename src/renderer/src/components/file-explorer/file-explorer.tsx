@@ -13,9 +13,17 @@ interface Props {
   workspacePath: string | null
   collapsed: boolean
   onToggleCollapsed: () => void
+  selectedFilePath: string | null
+  onSelectFile: (filePath: string) => void
 }
 
-export function FileExplorer({ workspacePath, collapsed, onToggleCollapsed }: Props) {
+export function FileExplorer({
+  workspacePath,
+  collapsed,
+  onToggleCollapsed,
+  selectedFilePath,
+  onSelectFile
+}: Props) {
   const queryClient = useQueryClient()
   const [expandedByWorkspace, setExpandedByWorkspace] = useState<Map<string, Set<string>>>(
     () => new Map()
@@ -103,6 +111,8 @@ export function FileExplorer({ workspacePath, collapsed, onToggleCollapsed }: Pr
               expanded={expanded}
               onToggle={handleToggle}
               statusIndex={statusIndex}
+              selectedFilePath={selectedFilePath}
+              onSelectFile={onSelectFile}
             />
           ) : (
             <div className="px-4 py-3 text-xs text-muted">Selecciona un agente</div>

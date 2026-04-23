@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -7,12 +7,30 @@ import type {
   FileEntry,
   GitFileStatus,
   GitFileStatusEntry,
-  ListDirectoryInput
+  ListDirectoryInput,
+  ReadWorkspaceFileInput,
+  ReadWorkspaceFileResult,
+  WriteWorkspaceFileInput
 } from '../shared/contracts'
 
 const execFileAsync = promisify(execFile)
 
 const HIDDEN_ENTRIES = new Set(['.git', 'node_modules', '.DS_Store'])
+const MAX_TEXT_FILE_SIZE_BYTES = 2 * 1024 * 1024
+
+const resolveWorkspacePath = (cwd: string, targetPath: string) => {
+  const base = path.resolve(cwd)
+  const absoluteTarget = path.resolve(targetPath)
+
+  if (absoluteTarget !== base && !absoluteTarget.startsWith(base + path.sep)) {
+    throw new Error('Path escapes workspace root.')
+  }
+
+  return {
+    base,
+    absoluteTarget
+  }
+}
 
 export const listDirectory = async (input: ListDirectoryInput): Promise<FileEntry[]> => {
   const base = path.resolve(input.cwd)
@@ -52,6 +70,44 @@ export const listDirectory = async (input: ListDirectoryInput): Promise<FileEntr
       if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
       return a.name.localeCompare(b.name)
     })
+}
+
+const ensureReadableTextFile = async (absolutePath: string) => {
+  const fileStats = await stat(absolutePath)
+
+  if (!fileStats.isFile()) {
+    throw new Error('Solo se pueden abrir archivos.')
+  }
+
+  if (fileStats.size > MAX_TEXT_FILE_SIZE_BYTES) {
+    throw new Error('El archivo es demasiado grande para el editor embebido.')
+  }
+
+  const buffer = await readFile(absolutePath)
+  if (buffer.includes(0)) {
+    throw new Error('Solo se pueden abrir archivos de texto.')
+  }
+
+  return buffer.toString('utf8')
+}
+
+export const readWorkspaceFile = async (
+  input: ReadWorkspaceFileInput
+): Promise<ReadWorkspaceFileResult> => {
+  const { absoluteTarget } = resolveWorkspacePath(input.cwd, input.filePath)
+  const content = await ensureReadableTextFile(absoluteTarget)
+  return { content }
+}
+
+export const writeWorkspaceFile = async (input: WriteWorkspaceFileInput): Promise<void> => {
+  const { absoluteTarget } = resolveWorkspacePath(input.cwd, input.filePath)
+  const fileStats = await stat(absoluteTarget)
+
+  if (!fileStats.isFile()) {
+    throw new Error('Solo se pueden guardar archivos.')
+  }
+
+  await writeFile(absoluteTarget, input.content, 'utf8')
 }
 
 const runGit = async (repoPath: string, args: string[]) => {

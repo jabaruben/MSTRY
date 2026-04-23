@@ -6,6 +6,7 @@ import { HotkeysProvider } from '@tanstack/react-hotkeys'
 import '@xterm/xterm/css/xterm.css'
 
 import { App } from './App'
+import './lib/monaco-setup'
 import './styles.css'
 
 // Prevent Electron from navigating to dropped files (default browser behavior).

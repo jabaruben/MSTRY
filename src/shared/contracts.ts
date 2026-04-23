@@ -182,6 +182,21 @@ export interface GitStatusInput {
   cwd: string
 }
 
+export interface ReadWorkspaceFileInput {
+  cwd: string
+  filePath: string
+}
+
+export interface ReadWorkspaceFileResult {
+  content: string
+}
+
+export interface WriteWorkspaceFileInput {
+  cwd: string
+  filePath: string
+  content: string
+}
+
 export interface ElectronApi {
   workspace: {
     getConfig: () => Promise<AppConfig>
@@ -256,5 +271,7 @@ export interface ElectronApi {
   files: {
     listDirectory: (input: ListDirectoryInput) => Promise<FileEntry[]>
     getGitStatus: (input: GitStatusInput) => Promise<GitFileStatusEntry[]>
+    readTextFile: (input: ReadWorkspaceFileInput) => Promise<ReadWorkspaceFileResult>
+    writeTextFile: (input: WriteWorkspaceFileInput) => Promise<void>
   }
 }

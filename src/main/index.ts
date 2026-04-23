@@ -26,7 +26,7 @@ import {
   setDefaultTabCommand
 } from './config'
 import { ClaudeStatusWatcher } from './claude-status'
-import { getGitStatus, listDirectory } from './files'
+import { getGitStatus, listDirectory, readWorkspaceFile, writeWorkspaceFile } from './files'
 import { checkoutMainWorkspace, createWorktree, listWorkspaceItems, removeWorktree } from './git'
 import { OpenCodeStatusWatcher } from './opencode-status'
 import { loadTabState, saveTabState } from './tab-store'
@@ -42,7 +42,9 @@ import type {
   ListDirectoryInput,
   ListWorktreesInput,
   PersistedTabState,
-  Project
+  Project,
+  ReadWorkspaceFileInput,
+  WriteWorkspaceFileInput
 } from '../shared/contracts'
 
 let mainWindow: BrowserWindow | null = null
@@ -205,6 +207,12 @@ const registerIpc = () => {
     listDirectory(input)
   )
   ipcMain.handle('files:git-status', (_event, input: GitStatusInput) => getGitStatus(input.cwd))
+  ipcMain.handle('files:read-text-file', (_event, input: ReadWorkspaceFileInput) =>
+    readWorkspaceFile(input)
+  )
+  ipcMain.handle('files:write-text-file', (_event, input: WriteWorkspaceFileInput) =>
+    writeWorkspaceFile(input)
+  )
 }
 
 function fixPath(): void {

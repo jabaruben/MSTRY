@@ -7,6 +7,7 @@ import {
   VscChevronDown,
   VscChevronRight,
   VscClose,
+  VscFile,
   VscFolderOpened,
   VscListFlat,
   VscListTree,
@@ -46,6 +47,7 @@ import type {
 } from '../../shared/contracts'
 import { CommandPalette, type CommandItem } from './components/command-palette'
 import { FileExplorer } from './components/file-explorer'
+import { FileEditor } from './components/file-editor'
 import { SettingsPanel } from './components/settings-panel'
 import { WorktreeTerminal } from './components/worktree-terminal'
 import { Button } from './components/ui/button'
@@ -55,6 +57,7 @@ import { getElectronBridge } from './lib/electron-bridge'
 import { cn } from './lib/utils'
 
 interface TerminalTab {
+  kind: 'terminal'
   id: string
   workspacePath: string
   initialCommand?: string
@@ -64,7 +67,26 @@ interface TerminalTab {
   processName: string | null
 }
 
+interface EditorTab {
+  kind: 'editor'
+  id: string
+  workspacePath: string
+  filePath: string
+  title: string
+}
+
+type AppTab = TerminalTab | EditorTab
+
+interface EditorDocumentState {
+  value: string
+  savedValue: string
+  isLoading: boolean
+  isSaving: boolean
+  errorMessage: string | null
+}
+
 const createTab = (workspacePath: string, initialCommand?: string): TerminalTab => ({
+  kind: 'terminal',
   id: crypto.randomUUID(),
   workspacePath,
   initialCommand,
@@ -75,12 +97,21 @@ const createTab = (workspacePath: string, initialCommand?: string): TerminalTab 
 })
 
 const createRestoredTab = (persisted: PersistedTab): TerminalTab => ({
+  kind: 'terminal',
   id: persisted.id,
   workspacePath: persisted.workspacePath,
   tmuxSessionName: persisted.tmuxSessionName,
   sessionId: null,
   pid: null,
   processName: null
+})
+
+const createEditorTab = (workspacePath: string, filePath: string): EditorTab => ({
+  kind: 'editor',
+  id: crypto.randomUUID(),
+  workspacePath,
+  filePath,
+  title: filePath.split(/[\\/]/).pop() ?? 'file'
 })
 
 const isSameOrChildPath = (basePath: string, candidatePath: string) => {
@@ -217,9 +248,9 @@ function SortableTabButton({
 export function App() {
   const queryClient = useQueryClient()
   const { selectedWorkspacePath, setSelectedWorkspacePath } = useSelectedWorkspace()
-  const [tabs, setTabs] = useState<TerminalTab[]>([])
+  const [tabs, setTabs] = useState<AppTab[]>([])
   const [activeTabId, setActiveTabId] = useState<Record<string, string>>({})
-  const tabsRef = useRef<TerminalTab[]>([])
+  const tabsRef = useRef<AppTab[]>([])
   const activeTabIdRef = useRef<Record<string, string>>({})
   const selectedWorkspacePathRef = useRef<string | null>(selectedWorkspacePath)
   const [agentsCollapsed, setAgentsCollapsed] = useState(false)
@@ -238,6 +269,11 @@ export function App() {
   const [customTabNames, setCustomTabNames] = useState<Record<string, string>>({})
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
+  const [editorDocuments, setEditorDocuments] = useState<Record<string, EditorDocumentState>>({})
+  const terminalTabs = useMemo(
+    () => tabs.filter((tab): tab is TerminalTab => tab.kind === 'terminal'),
+    [tabs]
+  )
 
   const appConfigQuery = useQuery({
     queryKey: ['app-config'],
@@ -266,7 +302,7 @@ export function App() {
   }, [selectedWorkspacePath])
 
   const commitTabState = useCallback(
-    (nextTabs: TerminalTab[]) => {
+    (nextTabs: AppTab[]) => {
       const nextActiveTabId = buildValidActiveTabId(nextTabs, activeTabIdRef.current)
       const currentSelectedWorkspacePath = selectedWorkspacePathRef.current
       const nextSelectedWorkspacePath =
@@ -336,7 +372,7 @@ export function App() {
       const bridge = getElectronBridge()
       const removedTabIds = new Set(
         tabsRef.current
-          .filter((tab) => workspaceBelongsToProject(removedProject, tab.workspacePath))
+          .filter((tab): tab is TerminalTab => tab.kind === 'terminal' && workspaceBelongsToProject(removedProject, tab.workspacePath))
           .map((tab) => {
             if (tab.tmuxSessionName) void bridge.terminal.destroySession(tab.tmuxSessionName)
             return tab.id
@@ -398,7 +434,7 @@ export function App() {
       const bridge = getElectronBridge()
       const removedTabIds = new Set(
         tabsRef.current
-          .filter((tab) => tab.workspacePath === variables.workspacePath)
+          .filter((tab): tab is TerminalTab => tab.kind === 'terminal' && tab.workspacePath === variables.workspacePath)
           .map((tab) => {
             if (tab.tmuxSessionName) void bridge.terminal.destroySession(tab.tmuxSessionName)
             return tab.id
@@ -473,20 +509,22 @@ export function App() {
       return
     }
 
-    const hasTabsForWorkspace = tabs.some((tab) => tab.workspacePath === selectedWorkspacePath)
+    const hasTabsForWorkspace = terminalTabs.some((tab) => tab.workspacePath === selectedWorkspacePath)
     if (!hasTabsForWorkspace) {
       const tab = createTab(selectedWorkspacePath, defaultTabCommand)
       setTabs((current) => [...current, tab])
       setActiveTabId((current) => ({ ...current, [selectedWorkspacePath]: tab.id }))
     }
-  }, [defaultTabCommand, selectedWorkspacePath, tabs])
+  }, [defaultTabCommand, selectedWorkspacePath, terminalTabs])
 
   useEffect(() => {
     const bridge = getElectronBridge()
     const off = bridge.terminal.onProcessChange((event) => {
       setTabs((current) =>
         current.map((tab) =>
-          tab.sessionId === event.sessionId ? { ...tab, processName: event.processName } : tab
+          tab.kind === 'terminal' && tab.sessionId === event.sessionId
+            ? { ...tab, processName: event.processName }
+            : tab
         )
       )
     })
@@ -565,7 +603,7 @@ export function App() {
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!tabsRestoredRef.current) return
-    const persistable = tabs.filter((t) => t.tmuxSessionName)
+    const persistable = terminalTabs.filter((t) => t.tmuxSessionName)
     if (persistable.length === 0 && tabs.length > 0) return
 
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
@@ -579,13 +617,15 @@ export function App() {
         activeTabId
       })
     }, 500)
-  }, [tabs, activeTabId])
+  }, [tabs, terminalTabs, activeTabId])
 
   const handleSessionCreated = useCallback(
     (tabId: string, sessionId: string, pid: number, tmuxSessionName: string) => {
       setTabs((current) =>
         current.map((tab) =>
-          tab.id === tabId ? { ...tab, sessionId, pid, tmuxSessionName } : tab
+          tab.kind === 'terminal' && tab.id === tabId
+            ? { ...tab, sessionId, pid, tmuxSessionName }
+            : tab
         )
       )
     },
@@ -599,12 +639,17 @@ export function App() {
 
   const currentActiveTabId = selectedWorkspacePath ? activeTabId[selectedWorkspacePath] ?? null : null
 
+  const currentActiveTab = useMemo(
+    () => currentTabs.find((tab) => tab.id === currentActiveTabId) ?? null,
+    [currentTabs, currentActiveTabId]
+  )
+
   const groupedAgents = useMemo(() => {
     const projects = appConfigQuery.data?.projects ?? []
     const workspacesByProject = workspacesByProjectQuery.data ?? {}
 
     const tabsByProject = new Map<string, TerminalTab[]>()
-    for (const tab of tabs) {
+    for (const tab of terminalTabs) {
       const ownerProject = findOwnerProject(projects, tab.workspacePath)
       const projectPath = ownerProject?.rootPath ?? '__orphan__'
       if (!tabsByProject.has(projectPath)) tabsByProject.set(projectPath, [])
@@ -647,7 +692,7 @@ export function App() {
     }
 
     return groups
-  }, [tabs, appConfigQuery.data?.projects, workspacesByProjectQuery.data])
+  }, [terminalTabs, appConfigQuery.data?.projects, workspacesByProjectQuery.data])
 
   const worktreeMenuItems = worktreeMenuProjectPath
     ? (workspacesByProjectQuery.data?.[worktreeMenuProjectPath] ?? [])
@@ -659,7 +704,9 @@ export function App() {
 
   const handleDeleteOrphanTabs = useCallback(() => {
     const projects = appConfigQuery.data?.projects ?? []
-    const orphanTabs = tabsRef.current.filter((tab) => !findOwnerProject(projects, tab.workspacePath))
+    const orphanTabs = tabsRef.current.filter(
+      (tab): tab is TerminalTab => tab.kind === 'terminal' && !findOwnerProject(projects, tab.workspacePath)
+    )
 
     if (orphanTabs.length === 0) return
 
@@ -770,7 +817,9 @@ export function App() {
 
   const handleKillAgent = useCallback(
     (tabId: string) => {
-      const target = tabsRef.current.find((tab) => tab.id === tabId)
+      const target = tabsRef.current.find(
+        (tab): tab is TerminalTab => tab.kind === 'terminal' && tab.id === tabId
+      )
       if (!target) return
 
       if (target.tmuxSessionName) {
@@ -787,17 +836,29 @@ export function App() {
       if (!selectedWorkspacePath) return
 
       const workspaceTabs = tabs.filter((tab) => tab.workspacePath === selectedWorkspacePath)
-      if (workspaceTabs.length <= 1) return
-
       const closingTab = workspaceTabs.find((tab) => tab.id === tabId)
+      if (!closingTab) return
+
+      const workspaceTerminalTabs = workspaceTabs.filter(
+        (tab): tab is TerminalTab => tab.kind === 'terminal'
+      )
+      if (closingTab.kind === 'terminal' && workspaceTerminalTabs.length <= 1) return
+
       const closingIndex = workspaceTabs.findIndex((tab) => tab.id === tabId)
 
       // Kill the tmux session — the user intentionally closed the tab.
-      if (closingTab?.tmuxSessionName) {
+      if (closingTab.kind === 'terminal' && closingTab.tmuxSessionName) {
         void getElectronBridge().terminal.destroySession(closingTab.tmuxSessionName)
       }
 
       setTabs((current) => current.filter((tab) => tab.id !== tabId))
+      if (closingTab.kind === 'editor') {
+        setEditorDocuments((current) => {
+          const next = { ...current }
+          delete next[closingTab.filePath]
+          return next
+        })
+      }
 
       if (currentActiveTabId === tabId) {
         const nextTab = workspaceTabs[closingIndex + 1] ?? workspaceTabs[closingIndex - 1]
@@ -809,10 +870,140 @@ export function App() {
     [selectedWorkspacePath, tabs, currentActiveTabId]
   )
 
+  const loadEditorFile = useCallback(async (workspacePath: string, filePath: string) => {
+    setEditorDocuments((current) => ({
+      ...current,
+      [filePath]: {
+        value: current[filePath]?.value ?? '',
+        savedValue: current[filePath]?.savedValue ?? '',
+        isLoading: true,
+        isSaving: false,
+        errorMessage: null
+      }
+    }))
+
+    try {
+      const result = await getElectronBridge().files.readTextFile({
+        cwd: workspacePath,
+        filePath
+      })
+
+      setEditorDocuments((current) => ({
+        ...current,
+        [filePath]: {
+          value: result.content,
+          savedValue: result.content,
+          isLoading: false,
+          isSaving: false,
+          errorMessage: null
+        }
+      }))
+    } catch (error) {
+      setEditorDocuments((current) => ({
+        ...current,
+        [filePath]: {
+          value: current[filePath]?.value ?? '',
+          savedValue: current[filePath]?.savedValue ?? '',
+          isLoading: false,
+          isSaving: false,
+          errorMessage: getErrorMessage(error)
+        }
+      }))
+    }
+  }, [])
+
+  const handleSelectFile = useCallback(
+    (filePath: string) => {
+      if (!selectedWorkspacePath) return
+
+      const existingTab = tabsRef.current.find(
+        (tab): tab is EditorTab =>
+          tab.kind === 'editor' &&
+          tab.workspacePath === selectedWorkspacePath &&
+          tab.filePath === filePath
+      )
+
+      if (existingTab) {
+        setActiveTabId((current) => ({ ...current, [selectedWorkspacePath]: existingTab.id }))
+        return
+      }
+
+      const nextTab = createEditorTab(selectedWorkspacePath, filePath)
+      setTabs((current) => [...current, nextTab])
+      setActiveTabId((current) => ({ ...current, [selectedWorkspacePath]: nextTab.id }))
+      void loadEditorFile(selectedWorkspacePath, filePath)
+    },
+    [loadEditorFile, selectedWorkspacePath]
+  )
+
+  const handleEditorChange = useCallback((filePath: string, value: string) => {
+    setEditorDocuments((current) => {
+      const existing = current[filePath]
+      if (!existing) return current
+
+      return {
+        ...current,
+        [filePath]: {
+          ...existing,
+          value
+        }
+      }
+    })
+  }, [])
+
+  const handleSaveEditor = useCallback(async (workspacePath: string, filePath: string) => {
+    const documentState = editorDocuments[filePath]
+    if (!documentState || documentState.isLoading || documentState.isSaving) return
+
+    setEditorDocuments((current) => ({
+      ...current,
+      [filePath]: {
+        ...current[filePath],
+        isSaving: true,
+        errorMessage: null
+      }
+    }))
+
+    try {
+      await getElectronBridge().files.writeTextFile({
+        cwd: workspacePath,
+        filePath,
+        content: documentState.value
+      })
+
+      setEditorDocuments((current) => ({
+        ...current,
+        [filePath]: {
+          ...current[filePath],
+          savedValue: current[filePath].value,
+          isSaving: false,
+          errorMessage: null
+        }
+      }))
+      queryClient.invalidateQueries({ queryKey: ['files'] })
+    } catch (error) {
+      setEditorDocuments((current) => ({
+        ...current,
+        [filePath]: {
+          ...current[filePath],
+          isSaving: false,
+          errorMessage: getErrorMessage(error)
+        }
+      }))
+    }
+  }, [editorDocuments, queryClient])
+
+  const handleReloadEditor = useCallback((workspacePath: string, filePath: string) => {
+    void loadEditorFile(workspacePath, filePath)
+  }, [loadEditorFile])
+
   const selectedWorkspace = useMemo(
     () => activeWorkspaces.find((item) => item.path === selectedWorkspacePath) ?? null,
     [activeWorkspaces, selectedWorkspacePath]
   )
+
+  const selectedFilePath =
+    currentActiveTab && currentActiveTab.kind === 'editor' ? currentActiveTab.filePath : null
 
   const draftWorktreeProject = useMemo(
     () =>
@@ -868,7 +1059,7 @@ export function App() {
       },
       {
         id: 'close-tab',
-        label: 'Close Terminal',
+        label: 'Close Tab',
         shortcut: '⌘W',
         icon: <VscClose className="size-4" />,
         onSelect: () => {
@@ -889,6 +1080,17 @@ export function App() {
         icon: <VscRefresh className="size-4" />,
         onSelect: handleRefresh
       },
+      ...(currentActiveTab?.kind === 'editor'
+        ? [
+            {
+              id: 'save-file',
+              label: 'Save File',
+              shortcut: '⌘S',
+              icon: <VscCheck className="size-4" />,
+              onSelect: () => void handleSaveEditor(currentActiveTab.workspacePath, currentActiveTab.filePath)
+            } satisfies CommandItem
+          ]
+        : []),
       {
         id: 'toggle-sidebar',
         label: sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar',
@@ -932,6 +1134,7 @@ export function App() {
     ],
     [
       activeProject?.rootPath,
+      currentActiveTab,
       currentActiveTabId,
       draftWorktreeName,
       handleCloseTab,
@@ -939,6 +1142,7 @@ export function App() {
       handleNewTab,
       handleNewTabInMain,
       handleRefresh,
+      handleSaveEditor,
       handleToggleMouse,
       mouseMode,
       pickProjectMutation,
@@ -957,6 +1161,14 @@ export function App() {
         hotkey: 'Mod+W',
         callback: () => {
           if (currentActiveTabId) handleCloseTab(currentActiveTabId)
+        }
+      },
+      {
+        hotkey: 'Mod+S',
+        callback: () => {
+          if (currentActiveTab?.kind === 'editor') {
+            void handleSaveEditor(currentActiveTab.workspacePath, currentActiveTab.filePath)
+          }
         }
       },
       {
@@ -1112,7 +1324,7 @@ export function App() {
               )}
               Agents
               <span className="ml-1 font-mono text-sm normal-case tracking-normal text-muted">
-                {tabs.length}
+                {terminalTabs.length}
               </span>
             </button>
 
@@ -1146,13 +1358,13 @@ export function App() {
           {!agentsCollapsed ? (
             <ScrollArea className="min-h-0 min-w-0 flex-1">
               <div className="overflow-hidden px-2 py-2">
-                {tabs.length === 0 ? (
+                {terminalTabs.length === 0 ? (
                   <div className="px-2 py-2 text-sm text-muted">Sin agentes activos</div>
                 ) : null}
 
                 {agentsCompact ? (
                   <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                    <SortableContext items={tabs.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                    <SortableContext items={terminalTabs.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                     <div className="flex flex-col">
                     {groupedAgents.flatMap((group) =>
                       group.worktrees.flatMap((wt) =>
@@ -1628,6 +1840,8 @@ export function App() {
             workspacePath={selectedWorkspacePath}
             collapsed={filesCollapsed}
             onToggleCollapsed={() => setFilesCollapsed((c) => !c)}
+            selectedFilePath={selectedFilePath}
+            onSelectFile={handleSelectFile}
           />
         </aside>
 
@@ -1651,18 +1865,24 @@ export function App() {
 
               {currentTabs.map((tab, index) => {
                 const isActive = tab.id === currentActiveTabId
-                const claudeInfo = tab.pid
-                  ? claudeSessions.find((s) => s.shellPid === tab.pid) ?? null
-                  : null
-                const codexInfo = tab.pid
-                  ? codexSessions.find((s) => s.shellPid === tab.pid) ?? null
-                  : null
-                const isClaude = claudeInfo !== null || isClaudeProcess(tab.processName)
-                const isCodex = codexInfo !== null || isCodexProcess(tab.processName)
-                const isOpenCode = isOpenCodeProcess(tab.processName)
+                const claudeInfo =
+                  tab.kind === 'terminal' && tab.pid
+                    ? claudeSessions.find((s) => s.shellPid === tab.pid) ?? null
+                    : null
+                const codexInfo =
+                  tab.kind === 'terminal' && tab.pid
+                    ? codexSessions.find((s) => s.shellPid === tab.pid) ?? null
+                    : null
+                const isClaude = tab.kind === 'terminal' && (claudeInfo !== null || isClaudeProcess(tab.processName))
+                const isCodex = tab.kind === 'terminal' && (codexInfo !== null || isCodexProcess(tab.processName))
+                const isOpenCode = tab.kind === 'terminal' && isOpenCodeProcess(tab.processName)
                 const isAgent = isClaude || isCodex || isOpenCode
                 const agentInfo = isCodex ? codexInfo : claudeInfo
                 const agentPrompt = (agentInfo as ClaudeSessionInfo | CodexSessionInfo | null)?.prompt
+                const editorDocument = tab.kind === 'editor' ? editorDocuments[tab.filePath] : null
+                const editorDirty = tab.kind === 'editor' && editorDocument
+                  ? editorDocument.value !== editorDocument.savedValue
+                  : false
 
                 return (
                   <button
@@ -1685,7 +1905,9 @@ export function App() {
                       </span>
                     ) : null}
                     <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-                      {isAgent ? (
+                      {tab.kind === 'editor' ? (
+                        <VscFile className="size-3.5" />
+                      ) : isAgent ? (
                         isClaude ? (
                           <BsClaude
                             className={cn(
@@ -1719,10 +1941,15 @@ export function App() {
                       ) : null}
                     </span>
                     <span className="truncate">
-                      {isAgent
+                      {tab.kind === 'editor'
+                        ? tab.title
+                        : isAgent
                         ? (agentInfo?.name ?? agentPrompt ?? (isOpenCode ? 'OpenCode' : isCodex ? 'Codex' : 'Claude'))
                         : (selectedWorkspace?.branch ?? selectedWorkspace?.name ?? 'Terminal')}
                     </span>
+                    {editorDirty ? (
+                      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" title="Cambios sin guardar" />
+                    ) : null}
                     {currentTabs.length > 1 ? (
                       <span
                         role="button"
@@ -1784,18 +2011,33 @@ export function App() {
                       tab.id === currentActiveTabId ? 'visible' : 'invisible'
                     )}
                   >
-                    <WorktreeTerminal
-                      active={tab.id === currentActiveTabId}
-                      cwd={tab.workspacePath}
-                      initialCommand={tab.initialCommand}
-                      tmuxSessionName={tab.tmuxSessionName}
-                      mouseMode={mouseMode}
-                      onNewTab={handleNewTab}
-                      onCloseTab={() => handleCloseTab(tab.id)}
-                      onSessionCreated={(sessionId, pid, tmux) =>
-                        handleSessionCreated(tab.id, sessionId, pid, tmux)
-                      }
-                    />
+                    {tab.kind === 'terminal' ? (
+                      <WorktreeTerminal
+                        active={tab.id === currentActiveTabId}
+                        cwd={tab.workspacePath}
+                        initialCommand={tab.initialCommand}
+                        tmuxSessionName={tab.tmuxSessionName}
+                        mouseMode={mouseMode}
+                        onNewTab={handleNewTab}
+                        onCloseTab={() => handleCloseTab(tab.id)}
+                        onSessionCreated={(sessionId, pid, tmux) =>
+                          handleSessionCreated(tab.id, sessionId, pid, tmux)
+                        }
+                      />
+                    ) : (
+                      <FileEditor
+                        filePath={tab.filePath}
+                        value={editorDocuments[tab.filePath]?.value ?? ''}
+                        savedValue={editorDocuments[tab.filePath]?.savedValue ?? ''}
+                        isLoading={editorDocuments[tab.filePath]?.isLoading ?? true}
+                        isSaving={editorDocuments[tab.filePath]?.isSaving ?? false}
+                        errorMessage={editorDocuments[tab.filePath]?.errorMessage ?? null}
+                        onChange={(value) => handleEditorChange(tab.filePath, value)}
+                        onSave={() => void handleSaveEditor(tab.workspacePath, tab.filePath)}
+                        onReload={() => handleReloadEditor(tab.workspacePath, tab.filePath)}
+                        onClose={() => handleCloseTab(tab.id)}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
