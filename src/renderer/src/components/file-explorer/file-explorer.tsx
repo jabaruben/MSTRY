@@ -115,7 +115,7 @@ export function FileExplorer({
               onSelectFile={onSelectFile}
             />
           ) : (
-            <div className="px-4 py-3 text-xs text-muted">Selecciona un agente</div>
+            <div className="px-4 py-3 text-xs text-muted">Select an agent</div>
           )}
         </ScrollArea>
       ) : null}

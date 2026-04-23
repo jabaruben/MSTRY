@@ -176,6 +176,8 @@ const api: ElectronApi = {
   files: {
     listDirectory: (input) => ipcRenderer.invoke('files:list-directory', input),
     getGitStatus: (input) => ipcRenderer.invoke('files:git-status', input),
+    getGitDiff: (input) => ipcRenderer.invoke('files:git-diff', input),
+    listWorkspaceFiles: (input) => ipcRenderer.invoke('files:list-workspace-files', input),
     readTextFile: (input) => ipcRenderer.invoke('files:read-text-file', input),
     writeTextFile: (input) => ipcRenderer.invoke('files:write-text-file', input)
   }

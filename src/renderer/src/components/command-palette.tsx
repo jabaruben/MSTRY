@@ -12,16 +12,25 @@ export interface CommandItem {
 interface CommandPaletteProps {
   commands: CommandItem[]
   onClose: () => void
+  placeholder?: string
+  emptyText?: string
+  filter?: (command: CommandItem, query: string) => boolean
 }
 
-export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
+export function CommandPalette({
+  commands,
+  onClose,
+  placeholder = 'Type a command...',
+  emptyText = 'No results',
+  filter
+}: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
   const filtered = commands.filter((cmd) =>
-    cmd.label.toLowerCase().includes(query.toLowerCase())
+    filter ? filter(cmd, query) : cmd.label.toLowerCase().includes(query.toLowerCase())
   )
 
   useEffect(() => {
@@ -81,7 +90,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a command..."
+            placeholder={placeholder}
             className="h-11 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted"
           />
           <button
@@ -96,7 +105,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
 
         <div ref={listRef} className="max-h-[300px] overflow-y-auto p-1.5">
           {filtered.length === 0 ? (
-            <div className="px-3 py-6 text-center text-sm text-muted">No results</div>
+            <div className="px-3 py-6 text-center text-sm text-muted">{emptyText}</div>
           ) : (
             filtered.map((cmd, index) => (
               <button

@@ -5,8 +5,10 @@ import { promisify } from 'node:util'
 
 import type {
   FileEntry,
+  GitDiffResult,
   GitFileStatus,
   GitFileStatusEntry,
+  ListWorkspaceFilesInput,
   ListDirectoryInput,
   ReadWorkspaceFileInput,
   ReadWorkspaceFileResult,
@@ -76,16 +78,16 @@ const ensureReadableTextFile = async (absolutePath: string) => {
   const fileStats = await stat(absolutePath)
 
   if (!fileStats.isFile()) {
-    throw new Error('Solo se pueden abrir archivos.')
+    throw new Error('Only files can be opened.')
   }
 
   if (fileStats.size > MAX_TEXT_FILE_SIZE_BYTES) {
-    throw new Error('El archivo es demasiado grande para el editor embebido.')
+    throw new Error('The file is too large for the embedded editor.')
   }
 
   const buffer = await readFile(absolutePath)
   if (buffer.includes(0)) {
-    throw new Error('Solo se pueden abrir archivos de texto.')
+    throw new Error('Only text files can be opened.')
   }
 
   return buffer.toString('utf8')
@@ -104,7 +106,7 @@ export const writeWorkspaceFile = async (input: WriteWorkspaceFileInput): Promis
   const fileStats = await stat(absoluteTarget)
 
   if (!fileStats.isFile()) {
-    throw new Error('Solo se pueden guardar archivos.')
+    throw new Error('Only files can be saved.')
   }
 
   await writeFile(absoluteTarget, input.content, 'utf8')
@@ -285,4 +287,74 @@ export const getGitStatus = async (cwd: string): Promise<GitFileStatusEntry[]> =
       }
     })
   )
+}
+
+const isMissingRevisionError = (error: unknown) =>
+  error instanceof Error &&
+  /exists on disk, but not in|path .* does not exist in|bad revision|unknown revision/i.test(
+    error.message
+  )
+
+const readGitTextFile = async (cwd: string, filePath: string) => {
+  try {
+    const output = await runGit(cwd, ['show', `HEAD:${filePath}`])
+    if (output.includes('\0')) {
+      throw new Error('Binary file diffs cannot be shown.')
+    }
+    return output
+  } catch (error) {
+    if (isMissingRevisionError(error)) {
+      return ''
+    }
+    throw error
+  }
+}
+
+export const getGitDiff = async (cwd: string, filePath: string): Promise<GitDiffResult> => {
+  const [statusEntries, originalContent] = await Promise.all([
+    getGitStatus(cwd),
+    readGitTextFile(cwd, filePath)
+  ])
+
+  const statusEntry = statusEntries.find((entry) => entry.relativePath === filePath)
+  if (!statusEntry) {
+    throw new Error('The file no longer appears as modified.')
+  }
+
+  let modifiedContent = ''
+  if (statusEntry.status !== 'deleted') {
+    const { absoluteTarget } = resolveWorkspacePath(cwd, path.join(cwd, filePath))
+    modifiedContent = await ensureReadableTextFile(absoluteTarget)
+  }
+
+  return {
+    filePath,
+    status: statusEntry.status,
+    originalContent,
+    modifiedContent
+  }
+}
+
+export const listWorkspaceFiles = async (input: ListWorkspaceFilesInput): Promise<string[]> => {
+  const base = path.resolve(input.cwd)
+
+  try {
+    const { stdout } = await execFileAsync(
+      'rg',
+      ['--files', '--hidden', '-g', '!.git', '-g', '!node_modules', '-g', '!.DS_Store'],
+      {
+        cwd: base,
+        encoding: 'utf8',
+        maxBuffer: 32 * 1024 * 1024
+      }
+    )
+
+    return stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .sort((a, b) => a.localeCompare(b))
+  } catch {
+    return []
+  }
 }

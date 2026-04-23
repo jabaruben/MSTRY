@@ -404,7 +404,7 @@ export function WorktreeTerminal({ active, cwd, initialCommand, tmuxSessionName,
         }
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : 'No se pudo abrir la terminal.'
+        const message = error instanceof Error ? error.message : 'Could not open the terminal.'
         terminal.writeln(`\r\n${message}`)
       })
 

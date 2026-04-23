@@ -20,7 +20,7 @@ const CODING_TOOL_PLACEHOLDERS = [
 ] as const
 
 const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : 'No se pudo guardar la configuracion.'
+  error instanceof Error ? error.message : 'Could not save settings.'
 
 export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onConfigUpdated, onClose }: SettingsPanelProps) {
   const [hooksEnabled, setHooksEnabled] = useState<boolean | null>(null)
@@ -144,7 +144,7 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
     event.preventDefault()
 
     if (!canSaveDefaultTabCommand) {
-      setCommandError('Reinicia MSTRY para cargar el nuevo bridge de settings y vuelve a intentarlo.')
+      setCommandError('Restart MSTRY to load the new settings bridge and try again.')
       return
     }
 
@@ -206,10 +206,10 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
         <div className="flex-1 overflow-y-auto p-6">
           <div>
             <div className="min-w-0">
-              <p className="text-sm font-medium">Comando por defecto en tabs nuevas</p>
+              <p className="text-sm font-medium">Default command for new tabs</p>
               <p className="mt-1 text-xs text-muted">
-                Se ejecuta automaticamente al crear una tab nueva. Dejalo vacio para abrir solo la shell.
-                Puedes usar algo como <code className="font-mono text-secondary">claude</code> o{' '}
+                Runs automatically when a new tab is opened. Leave empty to open just the shell.
+                You can use something like <code className="font-mono text-secondary">claude</code> or{' '}
                 <code className="font-mono text-secondary">claude --dangerously-skip-permissions</code>.
               </p>
             </div>
@@ -234,7 +234,7 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
                 variant="outline"
                 disabled={commandBusy || !isCommandDirty || !canSaveDefaultTabCommand}
               >
-                Guardar
+                Save
               </Button>
             </form>
 
@@ -244,15 +244,15 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
               </div>
             ) : !canSaveDefaultTabCommand ? (
               <div className="mt-3 rounded-lg bg-red-500/[0.06] px-3 py-2 text-xs text-error">
-                Esta ventana sigue usando una version anterior del bridge. Reinicia MSTRY para activar esta opcion.
+                This window is still using an older version of the bridge. Restart MSTRY to enable this option.
               </div>
             ) : commandSaved ? (
               <div className="mt-3 rounded-lg bg-overlay px-3 py-2 text-xs text-secondary">
-                Guardado. Las tabs nuevas usaran este comando.
+                Saved. New tabs will use this command.
               </div>
             ) : (
               <div className="mt-3 rounded-lg bg-overlay px-3 py-2 text-xs text-muted">
-                Valor actual: {initialDefaultTabCommand ? <code className="font-mono text-secondary">{initialDefaultTabCommand}</code> : 'shell limpia'}
+                Current value: {initialDefaultTabCommand ? <code className="font-mono text-secondary">{initialDefaultTabCommand}</code> : 'plain shell'}
               </div>
             )}
           </div>
@@ -260,10 +260,10 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
           <div className="mt-5 border-t pt-5">
             <div className="flex items-start gap-4">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">Comando en PATH</p>
+                <p className="text-sm font-medium">Command in PATH</p>
                 <p className="mt-1 text-xs text-muted">
-                  Instala el comando <code className="font-mono text-secondary">mstry</code> para abrir proyectos
-                  desde la terminal con <code className="font-mono text-secondary">mstry .</code>
+                  Install the <code className="font-mono text-secondary">mstry</code> command to open projects
+                  from the terminal with <code className="font-mono text-secondary">mstry .</code>
                 </p>
               </div>
 
@@ -304,7 +304,7 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
           <div className="mt-5 border-t pt-5">
             <p className="text-sm font-medium">Coding tools</p>
             <p className="mt-1 text-[10px] leading-none text-muted">
-              Instala CLIs y activa la integracion en Claude, Codex y Gemini.
+              Install CLIs and enable integration with Claude, Codex, and Gemini.
             </p>
 
             <div className="mt-2 space-y-1">
@@ -342,20 +342,20 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
                           setCodingTools(updated)
                         } catch (error) {
                           setToolError(
-                            `${tool.name}: ${error instanceof Error ? error.message : 'Error al instalar'}`
+                            `${tool.name}: ${error instanceof Error ? error.message : 'Install error'}`
                           )
                         } finally {
                           setInstallingTool(null)
                         }
                       }}
                     >
-                      {installingTool === tool.id ? '...' : 'Instalar'}
+                      {installingTool === tool.id ? '...' : 'Install'}
                     </Button>
                   )}
 
                   {supportsIntegration(tool.id) ? (
                     <label className="ml-1 flex shrink-0 items-center gap-1.5 text-[11px] text-muted">
-                      <span>Integracion</span>
+                      <span>Integration</span>
                       <input
                         type="checkbox"
                         className="size-3.5 accent-purple-500"

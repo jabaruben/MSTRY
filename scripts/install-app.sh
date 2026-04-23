@@ -24,16 +24,16 @@ for candidate in "${CANDIDATES[@]}"; do
 done
 
 if [ -z "$SRC" ]; then
-  echo "Error: no se encontró ${APP_NAME} en release/. Ejecuta primero: npm run dist" >&2
+  echo "Error: ${APP_NAME} not found in release/. Run first: npm run dist" >&2
   exit 1
 fi
 
-echo "Fuente:  $SRC"
-echo "Destino: $DEST"
+echo "Source: $SRC"
+echo "Target: $DEST"
 
 # Quit the running app (if any) so we can overwrite it.
 if pgrep -x "MSTRY" >/dev/null 2>&1; then
-  echo "Cerrando MSTRY en ejecución..."
+  echo "Closing running MSTRY..."
   osascript -e 'tell application "MSTRY" to quit' >/dev/null 2>&1 || true
   # Give it a moment; force-kill leftovers.
   sleep 1
@@ -42,15 +42,15 @@ fi
 
 # Remove previous install and copy the new bundle.
 if [ -d "$DEST" ]; then
-  echo "Eliminando instalación previa..."
+  echo "Removing previous install..."
   rm -rf "$DEST"
 fi
 
-echo "Copiando..."
+echo "Copying..."
 cp -R "$SRC" "$DEST"
 
 # Clear the macOS quarantine attribute so Gatekeeper doesn't block an unsigned build.
 xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
 
-echo "Listo. MSTRY instalado en $DEST"
-echo "Ábrelo con: open -a MSTRY"
+echo "Done. MSTRY installed at $DEST"
+echo "Open it with: open -a MSTRY"

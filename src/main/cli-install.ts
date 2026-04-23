@@ -31,8 +31,8 @@ export const installCli = async (): Promise<void> => {
     await dialog.showMessageBox({
       type: 'error',
       title: 'Error',
-      message: 'No se encontró el script CLI.',
-      detail: `Se esperaba en: ${scriptPath}`
+      message: 'CLI script not found.',
+      detail: `Expected at: ${scriptPath}`
     })
     return
   }
@@ -45,15 +45,15 @@ export const installCli = async (): Promise<void> => {
         dialog.showMessageBox({
           type: 'error',
           title: 'Error',
-          message: 'No se pudo instalar el comando.',
+          message: 'Could not install the command.',
           detail: error.message
         })
       } else {
         dialog.showMessageBox({
           type: 'info',
-          title: 'Comando instalado',
-          message: 'El comando "mstry" se ha instalado correctamente.',
-          detail: 'Ahora puedes usar "mstry ." desde tu terminal.'
+          title: 'Command installed',
+          message: 'The "mstry" command was installed successfully.',
+          detail: 'You can now run "mstry ." from your terminal.'
         })
       }
       resolve()
@@ -70,14 +70,14 @@ export const uninstallCli = async (): Promise<void> => {
         dialog.showMessageBox({
           type: 'error',
           title: 'Error',
-          message: 'No se pudo desinstalar el comando.',
+          message: 'Could not uninstall the command.',
           detail: error.message
         })
       } else {
         dialog.showMessageBox({
           type: 'info',
-          title: 'Comando desinstalado',
-          message: 'El comando "mstry" se ha eliminado del PATH.'
+          title: 'Command uninstalled',
+          message: 'The "mstry" command was removed from PATH.'
         })
       }
       resolve()

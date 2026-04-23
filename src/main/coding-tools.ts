@@ -15,7 +15,7 @@ const TOOLS: CodingToolDef[] = [
   {
     id: 'claude',
     name: 'Claude Code',
-    description: 'Anthropic CLI para programar con Claude',
+    description: 'Anthropic CLI for coding with Claude',
     checkCmd: 'claude',
     checkArgs: ['--version'],
     installCmd: 'npm',
@@ -24,7 +24,7 @@ const TOOLS: CodingToolDef[] = [
   {
     id: 'codex',
     name: 'OpenAI Codex',
-    description: 'OpenAI CLI para programar con Codex',
+    description: 'OpenAI CLI for coding with Codex',
     checkCmd: 'codex',
     checkArgs: ['--version'],
     installCmd: 'npm',
@@ -33,7 +33,7 @@ const TOOLS: CodingToolDef[] = [
   {
     id: 'gemini',
     name: 'Gemini CLI',
-    description: 'Google CLI para programar con Gemini',
+    description: 'Google CLI for coding with Gemini',
     checkCmd: 'gemini',
     checkArgs: ['--version'],
     installCmd: 'npm',
@@ -42,7 +42,7 @@ const TOOLS: CodingToolDef[] = [
   {
     id: 'opencode',
     name: 'OpenCode',
-    description: 'CLI open source para programar con OpenCode',
+    description: 'Open source CLI for coding with OpenCode',
     checkCmd: 'opencode',
     checkArgs: ['--version'],
     installCmd: 'npm',

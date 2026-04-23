@@ -26,7 +26,14 @@ import {
   setDefaultTabCommand
 } from './config'
 import { ClaudeStatusWatcher } from './claude-status'
-import { getGitStatus, listDirectory, readWorkspaceFile, writeWorkspaceFile } from './files'
+import {
+  getGitDiff,
+  getGitStatus,
+  listDirectory,
+  listWorkspaceFiles,
+  readWorkspaceFile,
+  writeWorkspaceFile
+} from './files'
 import { checkoutMainWorkspace, createWorktree, listWorkspaceItems, removeWorktree } from './git'
 import { OpenCodeStatusWatcher } from './opencode-status'
 import { loadTabState, saveTabState } from './tab-store'
@@ -38,8 +45,10 @@ import type {
   CreateTerminalSessionInput,
   CreateWorktreeInput,
   DeleteWorktreeInput,
+  GitDiffInput,
   GitStatusInput,
   ListDirectoryInput,
+  ListWorkspaceFilesInput,
   ListWorktreesInput,
   PersistedTabState,
   Project,
@@ -86,7 +95,7 @@ const requireProject = async (projectPath?: string | null): Promise<ReadyAppConf
   const activeProject = config.projects.find((project) => project.rootPath === targetProjectPath)
 
   if (!activeProject) {
-    throw new Error('Configura primero una carpeta de trabajo.')
+    throw new Error('Configure a working folder first.')
   }
 
   return {
@@ -105,7 +114,7 @@ const registerIpc = () => {
   ipcMain.handle('workspace:pick-path', async () => {
     const config = await getAppConfig()
     const options: OpenDialogOptions = {
-      title: 'Selecciona una carpeta de trabajo',
+      title: 'Select a working folder',
       properties: ['openDirectory'],
       defaultPath: config.activeProjectPath ?? process.cwd()
     }
@@ -207,6 +216,12 @@ const registerIpc = () => {
     listDirectory(input)
   )
   ipcMain.handle('files:git-status', (_event, input: GitStatusInput) => getGitStatus(input.cwd))
+  ipcMain.handle('files:git-diff', (_event, input: GitDiffInput) =>
+    getGitDiff(input.cwd, input.filePath)
+  )
+  ipcMain.handle('files:list-workspace-files', (_event, input: ListWorkspaceFilesInput) =>
+    listWorkspaceFiles(input)
+  )
   ipcMain.handle('files:read-text-file', (_event, input: ReadWorkspaceFileInput) =>
     readWorkspaceFile(input)
   )
@@ -241,11 +256,11 @@ app.whenReady().then(async () => {
   if (!isTmuxInstalled()) {
     const { response } = await dialog.showMessageBox({
       type: 'error',
-      title: 'tmux no encontrado',
-      message: 'MSTRY necesita tmux para funcionar.',
+      title: 'tmux not found',
+      message: 'MSTRY requires tmux to run.',
       detail:
-        'Instálalo con Homebrew ejecutando en tu terminal:\n\n  brew install tmux\n\nDespués vuelve a abrir la aplicación.',
-      buttons: ['Cerrar aplicación', 'Copiar comando'],
+        'Install it with Homebrew by running in your terminal:\n\n  brew install tmux\n\nThen reopen the app.',
+      buttons: ['Quit app', 'Copy command'],
       defaultId: 0,
       cancelId: 0
     })

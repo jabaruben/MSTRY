@@ -138,7 +138,7 @@ export const addProjectPath = async (projectPath: string): Promise<AppConfig> =>
   const normalized = await normalizeProjectPath(projectPath)
 
   if (!normalized) {
-    throw new Error('La ruta indicada no es una carpeta valida.')
+    throw new Error('The provided path is not a valid folder.')
   }
 
   const stored = await readStoredConfig()
@@ -156,14 +156,14 @@ export const selectProjectPath = async (projectPath: string): Promise<AppConfig>
   const normalized = await normalizeProjectPath(projectPath)
 
   if (!normalized) {
-    throw new Error('No he podido encontrar ese proyecto.')
+    throw new Error('Could not find that project.')
   }
 
   const config = await getAppConfig()
   const exists = config.projects.some((project) => project.rootPath === normalized)
 
   if (!exists) {
-    throw new Error('Ese proyecto no existe en la lista actual.')
+    throw new Error('That project is not in the current list.')
   }
 
   const updated: AppConfig = {

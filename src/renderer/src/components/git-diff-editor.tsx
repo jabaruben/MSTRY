@@ -1,9 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
-import Editor from '@monaco-editor/react'
-import { VscCheck, VscClose, VscRefresh, VscSave } from 'react-icons/vsc'
+import { DiffEditor } from '@monaco-editor/react'
+import { VscClose, VscRefresh } from 'react-icons/vsc'
 
-import { Button } from './ui/button'
+import type { GitFileStatus } from '../../../shared/contracts'
 import { cn } from '../lib/utils'
+import { statusColorClass, statusLetter } from './file-explorer/git-status-utils'
+import { Button } from './ui/button'
+
+interface Props {
+  filePath: string
+  status: GitFileStatus
+  originalValue: string
+  modifiedValue: string
+  isLoading: boolean
+  errorMessage: string | null
+  onReload: () => void
+  onClose: () => void
+}
 
 const languageByExtension: Record<string, string> = {
   c: 'c',
@@ -38,34 +51,18 @@ const detectLanguage = (filePath: string) => {
   return languageByExtension[extension] ?? 'plaintext'
 }
 
-interface Props {
-  filePath: string
-  value: string
-  savedValue: string
-  isLoading: boolean
-  isSaving: boolean
-  errorMessage: string | null
-  onChange: (value: string) => void
-  onSave: () => void
-  onReload: () => void
-  onClose: () => void
-}
-
-export function FileEditor({
+export function GitDiffEditor({
   filePath,
-  value,
-  savedValue,
+  status,
+  originalValue,
+  modifiedValue,
   isLoading,
-  isSaving,
   errorMessage,
-  onChange,
-  onSave,
   onReload,
   onClose
 }: Props) {
   const [preferredTheme, setPreferredTheme] = useState<'vs' | 'vs-dark'>('vs-dark')
   const language = useMemo(() => detectLanguage(filePath), [filePath])
-  const isDirty = value !== savedValue
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -82,36 +79,26 @@ export function FileEditor({
         <div className="min-w-0 flex-1">
           <div className="truncate font-mono text-sm text-foreground">{filePath}</div>
           <div className="text-xs text-muted">
-            {errorMessage
-              ? errorMessage
-              : isLoading
-                ? 'Loading file…'
-                : isSaving
-                  ? 'Saving…'
-                  : isDirty
-                    ? 'Unsaved changes'
-                    : 'Saved'}
+            {errorMessage ? errorMessage : isLoading ? 'Loading diff…' : 'Diff against HEAD'}
           </div>
         </div>
 
-        {!errorMessage && !isLoading ? (
-          <span
-            className={cn(
-              'rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em]',
-              isDirty ? 'border-amber-500/30 text-amber-500' : 'border-emerald-500/30 text-emerald-500'
-            )}
-          >
-            {isDirty ? 'Dirty' : 'Saved'}
-          </span>
-        ) : null}
+        <span
+          className={cn(
+            'rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em]',
+            statusColorClass[status]
+          )}
+        >
+          {statusLetter[status]} {status}
+        </span>
 
         <Button
           size="icon"
           variant="ghost"
           className="size-8 rounded-md"
           onClick={onReload}
-          aria-label="Reload file"
-          title="Reload file"
+          aria-label="Reload diff"
+          title="Reload diff"
         >
           <VscRefresh className="size-4" />
         </Button>
@@ -120,21 +107,9 @@ export function FileEditor({
           size="icon"
           variant="ghost"
           className="size-8 rounded-md"
-          onClick={onSave}
-          disabled={isLoading || isSaving || !!errorMessage || !isDirty}
-          aria-label="Save file"
-          title="Save file"
-        >
-          {isSaving ? <VscCheck className="size-4" /> : <VscSave className="size-4" />}
-        </Button>
-
-        <Button
-          size="icon"
-          variant="ghost"
-          className="size-8 rounded-md"
           onClick={onClose}
-          aria-label="Close editor"
-          title="Close editor"
+          aria-label="Close diff"
+          title="Close diff"
         >
           <VscClose className="size-4" />
         </Button>
@@ -145,27 +120,27 @@ export function FileEditor({
           <div className="flex h-full items-center justify-center px-6 text-sm text-error">
             {errorMessage}
           </div>
+        ) : isLoading ? (
+          <div className="flex h-full items-center justify-center px-6 text-sm text-muted">
+            Loading diff…
+          </div>
         ) : (
-          <Editor
+          <DiffEditor
             key={filePath}
             height="100%"
             language={language}
             theme={preferredTheme}
-            value={value}
-            loading={<div className="px-4 py-3 text-sm text-muted">Loading editor…</div>}
-            onChange={(nextValue) => onChange(nextValue ?? '')}
-            onMount={(editor, monaco) => {
-              editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-                onSave()
-              })
-            }}
+            original={originalValue}
+            modified={modifiedValue}
+            loading={<div className="px-4 py-3 text-sm text-muted">Loading diff…</div>}
             options={{
               automaticLayout: true,
               fontSize: 13,
               minimap: { enabled: false },
               padding: { top: 12, bottom: 12 },
-              scrollBeyondLastLine: false,
-              wordWrap: 'on'
+              readOnly: true,
+              renderSideBySide: true,
+              scrollBeyondLastLine: false
             }}
           />
         )}

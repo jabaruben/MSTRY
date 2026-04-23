@@ -182,6 +182,22 @@ export interface GitStatusInput {
   cwd: string
 }
 
+export interface GitDiffInput {
+  cwd: string
+  filePath: string
+}
+
+export interface GitDiffResult {
+  filePath: string
+  status: GitFileStatus
+  originalContent: string
+  modifiedContent: string
+}
+
+export interface ListWorkspaceFilesInput {
+  cwd: string
+}
+
 export interface ReadWorkspaceFileInput {
   cwd: string
   filePath: string
@@ -271,6 +287,8 @@ export interface ElectronApi {
   files: {
     listDirectory: (input: ListDirectoryInput) => Promise<FileEntry[]>
     getGitStatus: (input: GitStatusInput) => Promise<GitFileStatusEntry[]>
+    getGitDiff: (input: GitDiffInput) => Promise<GitDiffResult>
+    listWorkspaceFiles: (input: ListWorkspaceFilesInput) => Promise<string[]>
     readTextFile: (input: ReadWorkspaceFileInput) => Promise<ReadWorkspaceFileResult>
     writeTextFile: (input: WriteWorkspaceFileInput) => Promise<void>
   }

@@ -40,6 +40,7 @@ import type {
   AppConfig,
   ClaudeSessionInfo,
   CodexSessionInfo,
+  GitFileStatus,
   OpenCodeSessionInfo,
   PersistedTab,
   Project,
@@ -48,6 +49,8 @@ import type {
 import { CommandPalette, type CommandItem } from './components/command-palette'
 import { FileExplorer } from './components/file-explorer'
 import { FileEditor } from './components/file-editor'
+import { GitDiffEditor } from './components/git-diff-editor'
+import { GitPanel } from './components/git-panel'
 import { SettingsPanel } from './components/settings-panel'
 import { WorktreeTerminal } from './components/worktree-terminal'
 import { Button } from './components/ui/button'
@@ -75,13 +78,29 @@ interface EditorTab {
   title: string
 }
 
-type AppTab = TerminalTab | EditorTab
+interface DiffTab {
+  kind: 'git-diff'
+  id: string
+  workspacePath: string
+  filePath: string
+  title: string
+}
+
+type AppTab = TerminalTab | EditorTab | DiffTab
 
 interface EditorDocumentState {
   value: string
   savedValue: string
   isLoading: boolean
   isSaving: boolean
+  errorMessage: string | null
+}
+
+interface DiffDocumentState {
+  originalValue: string
+  modifiedValue: string
+  status: GitFileStatus
+  isLoading: boolean
   errorMessage: string | null
 }
 
@@ -112,6 +131,14 @@ const createEditorTab = (workspacePath: string, filePath: string): EditorTab => 
   workspacePath,
   filePath,
   title: filePath.split(/[\\/]/).pop() ?? 'file'
+})
+
+const createDiffTab = (workspacePath: string, filePath: string): DiffTab => ({
+  kind: 'git-diff',
+  id: crypto.randomUUID(),
+  workspacePath,
+  filePath,
+  title: `diff:${filePath.split(/[\\/]/).pop() ?? 'file'}`
 })
 
 const isSameOrChildPath = (basePath: string, candidatePath: string) => {
@@ -182,7 +209,7 @@ const getErrorMessage = (error: unknown) => {
     return error.message
   }
 
-  return 'Ha ocurrido un error inesperado.'
+  return 'An unexpected error occurred.'
 }
 
 const useSelectedWorkspace = () => {
@@ -256,6 +283,7 @@ export function App() {
   const [agentsCollapsed, setAgentsCollapsed] = useState(false)
   const [agentsCompact, setAgentsCompact] = useState(false)
   const [filesCollapsed, setFilesCollapsed] = useState(false)
+  const [gitCollapsed, setGitCollapsed] = useState(false)
   const [collapsedAgentProjects, setCollapsedAgentProjects] = useState<Set<string>>(new Set())
   const [collapsedAgentWorktrees, setCollapsedAgentWorktrees] = useState<Set<string>>(new Set())
   const [draftWorktreeName, setDraftWorktreeName] = useState<string | null>(null)
@@ -264,12 +292,14 @@ export function App() {
   const worktreeMenuRef = useRef<HTMLDivElement>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [quickOpenOpen, setQuickOpenOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mouseMode, setMouseMode] = useState(false)
   const [customTabNames, setCustomTabNames] = useState<Record<string, string>>({})
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
   const [editorDocuments, setEditorDocuments] = useState<Record<string, EditorDocumentState>>({})
+  const [diffDocuments, setDiffDocuments] = useState<Record<string, DiffDocumentState>>({})
   const terminalTabs = useMemo(
     () => tabs.filter((tab): tab is TerminalTab => tab.kind === 'terminal'),
     [tabs]
@@ -278,6 +308,27 @@ export function App() {
   const appConfigQuery = useQuery({
     queryKey: ['app-config'],
     queryFn: () => getElectronBridge().workspace.getConfig()
+  })
+
+  const selectedGitStatusQuery = useQuery({
+    queryKey: ['files', 'git-status', selectedWorkspacePath],
+    queryFn: async () => {
+      if (!selectedWorkspacePath) return []
+      return getElectronBridge().files.getGitStatus({ cwd: selectedWorkspacePath })
+    },
+    enabled: selectedWorkspacePath !== null,
+    refetchInterval: 3000,
+    staleTime: 1500
+  })
+
+  const quickOpenFilesQuery = useQuery({
+    queryKey: ['files', 'workspace-files', selectedWorkspacePath],
+    queryFn: async () => {
+      if (!selectedWorkspacePath) return []
+      return getElectronBridge().files.listWorkspaceFiles({ cwd: selectedWorkspacePath })
+    },
+    enabled: selectedWorkspacePath !== null && quickOpenOpen,
+    staleTime: 15_000
   })
 
   const activeProject = useMemo(
@@ -710,10 +761,10 @@ export function App() {
 
     if (orphanTabs.length === 0) return
 
-    const label = orphanTabs.length === 1 ? '1 agente huerfano' : `${orphanTabs.length} agentes huerfanos`
+    const label = orphanTabs.length === 1 ? '1 orphan agent' : `${orphanTabs.length} orphan agents`
     if (
       !window.confirm(
-        `Quitar ${label}.\n\nSe cerraran sus terminales y desapareceran de la barra lateral.`
+        `Remove ${label}.\n\nTheir terminals will close and they will disappear from the sidebar.`
       )
     ) {
       return
@@ -858,6 +909,12 @@ export function App() {
           delete next[closingTab.filePath]
           return next
         })
+      } else if (closingTab.kind === 'git-diff') {
+        setDiffDocuments((current) => {
+          const next = { ...current }
+          delete next[closingTab.filePath]
+          return next
+        })
       }
 
       if (currentActiveTabId === tabId) {
@@ -912,6 +969,48 @@ export function App() {
     }
   }, [])
 
+  const loadDiffFile = useCallback(async (workspacePath: string, filePath: string) => {
+    setDiffDocuments((current) => ({
+      ...current,
+      [filePath]: {
+        originalValue: current[filePath]?.originalValue ?? '',
+        modifiedValue: current[filePath]?.modifiedValue ?? '',
+        status: current[filePath]?.status ?? 'modified',
+        isLoading: true,
+        errorMessage: null
+      }
+    }))
+
+    try {
+      const result = await getElectronBridge().files.getGitDiff({
+        cwd: workspacePath,
+        filePath
+      })
+
+      setDiffDocuments((current) => ({
+        ...current,
+        [filePath]: {
+          originalValue: result.originalContent,
+          modifiedValue: result.modifiedContent,
+          status: result.status,
+          isLoading: false,
+          errorMessage: null
+        }
+      }))
+    } catch (error) {
+      setDiffDocuments((current) => ({
+        ...current,
+        [filePath]: {
+          originalValue: current[filePath]?.originalValue ?? '',
+          modifiedValue: current[filePath]?.modifiedValue ?? '',
+          status: current[filePath]?.status ?? 'modified',
+          isLoading: false,
+          errorMessage: getErrorMessage(error)
+        }
+      }))
+    }
+  }, [])
+
   const handleSelectFile = useCallback(
     (filePath: string) => {
       if (!selectedWorkspacePath) return
@@ -934,6 +1033,30 @@ export function App() {
       void loadEditorFile(selectedWorkspacePath, filePath)
     },
     [loadEditorFile, selectedWorkspacePath]
+  )
+
+  const handleSelectGitFile = useCallback(
+    (filePath: string) => {
+      if (!selectedWorkspacePath) return
+
+      const existingTab = tabsRef.current.find(
+        (tab): tab is DiffTab =>
+          tab.kind === 'git-diff' &&
+          tab.workspacePath === selectedWorkspacePath &&
+          tab.filePath === filePath
+      )
+
+      if (existingTab) {
+        setActiveTabId((current) => ({ ...current, [selectedWorkspacePath]: existingTab.id }))
+        return
+      }
+
+      const nextTab = createDiffTab(selectedWorkspacePath, filePath)
+      setTabs((current) => [...current, nextTab])
+      setActiveTabId((current) => ({ ...current, [selectedWorkspacePath]: nextTab.id }))
+      void loadDiffFile(selectedWorkspacePath, filePath)
+    },
+    [loadDiffFile, selectedWorkspacePath]
   )
 
   const handleEditorChange = useCallback((filePath: string, value: string) => {
@@ -981,6 +1104,7 @@ export function App() {
         }
       }))
       queryClient.invalidateQueries({ queryKey: ['files'] })
+      void loadDiffFile(workspacePath, filePath).catch(() => {})
     } catch (error) {
       setEditorDocuments((current) => ({
         ...current,
@@ -991,19 +1115,41 @@ export function App() {
         }
       }))
     }
-  }, [editorDocuments, queryClient])
+  }, [editorDocuments, loadDiffFile, queryClient])
 
   const handleReloadEditor = useCallback((workspacePath: string, filePath: string) => {
     void loadEditorFile(workspacePath, filePath)
   }, [loadEditorFile])
+
+  const handleReloadDiff = useCallback((workspacePath: string, filePath: string) => {
+    void loadDiffFile(workspacePath, filePath)
+  }, [loadDiffFile])
 
   const selectedWorkspace = useMemo(
     () => activeWorkspaces.find((item) => item.path === selectedWorkspacePath) ?? null,
     [activeWorkspaces, selectedWorkspacePath]
   )
 
+  const selectedWorkspaceLabel = useMemo(() => {
+    if (selectedWorkspace) {
+      return (
+        selectedWorkspace.branch ??
+        (selectedWorkspace.isMain ? 'main' : selectedWorkspace.name)
+      )
+    }
+    if (activeProject && selectedWorkspacePath === activeProject.rootPath) {
+      return 'main'
+    }
+    if (selectedWorkspacePath) {
+      return selectedWorkspacePath.split('/').pop() ?? null
+    }
+    return null
+  }, [activeProject, selectedWorkspace, selectedWorkspacePath])
+
   const selectedFilePath =
     currentActiveTab && currentActiveTab.kind === 'editor' ? currentActiveTab.filePath : null
+  const selectedGitFilePath =
+    currentActiveTab && currentActiveTab.kind === 'git-diff' ? currentActiveTab.filePath : null
 
   const draftWorktreeProject = useMemo(
     () =>
@@ -1035,10 +1181,33 @@ export function App() {
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['app-config'] })
     queryClient.invalidateQueries({ queryKey: ['workspaces'] })
+    queryClient.invalidateQueries({ queryKey: ['files'] })
   }
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => !open)
+  }, [])
+
+  const quickOpenCommands = useMemo<CommandItem[]>(
+    () =>
+      (quickOpenFilesQuery.data ?? []).map((filePath) => ({
+        id: `open:${filePath}`,
+        label: filePath,
+        icon: <VscFile className="size-4" />,
+        onSelect: () => handleSelectFile(filePath)
+      })),
+    [handleSelectFile, quickOpenFilesQuery.data]
+  )
+
+  const quickOpenFilter = useCallback((command: CommandItem, query: string) => {
+    const trimmedQuery = query.trim()
+    if (!trimmedQuery) return true
+
+    try {
+      return new RegExp(trimmedQuery, 'i').test(command.label)
+    } catch {
+      return command.label.toLowerCase().includes(trimmedQuery.toLowerCase())
+    }
   }, [])
 
   const commands = useMemo<CommandItem[]>(
@@ -1100,7 +1269,7 @@ export function App() {
       },
       {
         id: 'new-worktree',
-        label: 'Crear worktree',
+        label: 'Create worktree',
         icon: <VscSourceControl className="size-4" />,
         onSelect: () => {
           if (draftWorktreeName !== null) {
@@ -1115,15 +1284,25 @@ export function App() {
       },
       {
         id: 'new-tab-main',
-        label: 'Abrir terminal en main',
+        label: 'Open terminal in main',
         icon: <VscTerminalBash className="size-4" />,
         onSelect: handleNewTabInMain
       },
       {
         id: 'open-folder',
-        label: 'Abrir carpeta',
+        label: 'Open folder',
         icon: <VscFolderOpened className="size-4" />,
         onSelect: () => void pickProjectMutation.mutateAsync()
+      },
+      {
+        id: 'quick-open',
+        label: 'Quick open file',
+        shortcut: '⌘P',
+        icon: <VscFile className="size-4" />,
+        onSelect: () => {
+          setCommandPaletteOpen(false)
+          setQuickOpenOpen(true)
+        }
       },
       {
         id: 'toggle-mouse',
@@ -1173,7 +1352,17 @@ export function App() {
       },
       {
         hotkey: 'Mod+K',
-        callback: () => setCommandPaletteOpen((open) => !open)
+        callback: () => {
+          setQuickOpenOpen(false)
+          setCommandPaletteOpen((open) => !open)
+        }
+      },
+      {
+        hotkey: 'Mod+P',
+        callback: () => {
+          setCommandPaletteOpen(false)
+          setQuickOpenOpen((open) => !open)
+        }
       },
       {
         hotkey: 'Mod+B',
@@ -1207,7 +1396,7 @@ export function App() {
   }
 
   const handleDeleteProject = async (project: Project) => {
-    if (!window.confirm(`Quitar ${project.name} de la lista de proyectos.`)) {
+    if (!window.confirm(`Remove ${project.name} from the list of projects.`)) {
       return
     }
 
@@ -1217,12 +1406,12 @@ export function App() {
   const handleDeleteWorktree = async (workspace: WorkspaceItem, projectPath: string) => {
     const targetName = workspace.branch ?? workspace.name
     const branchWarning = workspace.branch
-      ? `Tambien se borrara la rama local ${workspace.branch}.`
-      : 'Se borrara la carpeta del worktree.'
+      ? `The local branch ${workspace.branch} will also be deleted.`
+      : 'The worktree folder will be deleted.'
 
     if (
       !window.confirm(
-        `Borrar ${targetName}.\n\n${branchWarning}\nSe perderan los cambios sin commit que haya dentro de ese worktree.`
+        `Delete ${targetName}.\n\n${branchWarning}\nAny uncommitted changes inside this worktree will be lost.`
       )
     ) {
       return
@@ -1285,7 +1474,7 @@ export function App() {
                 <Input
                   value={draftWorktreeName}
                   onChange={(event) => setDraftWorktreeName(event.target.value)}
-                  placeholder="feature/nuevo-worktree"
+                  placeholder="feature/new-worktree"
                   className="h-9 rounded-lg text-sm"
                   disabled={createWorktreeMutation.isPending}
                 />
@@ -1505,8 +1694,8 @@ export function App() {
                         variant="ghost"
                         className="size-5 shrink-0 rounded opacity-0 group-hover:opacity-100"
                         onClick={() => void handleCheckoutMain(group.project)}
-                        aria-label="Checkout rama principal"
-                        title="Checkout rama principal"
+                        aria-label="Checkout primary branch"
+                        title="Checkout primary branch"
                       >
                         <VscTerminalBash className="size-3.5" />
                       </Button>
@@ -1534,7 +1723,7 @@ export function App() {
                                 onClick={() => handleOpenProjectMain(group.project)}
                               >
                                 <VscTerminalBash className="size-3 shrink-0" />
-                                <span className="truncate">Abrir terminal en main</span>
+                                <span className="truncate">Open terminal in main</span>
                                 {selectedWorkspacePath === group.project?.rootPath ? (
                                   <VscCheck className="ml-auto size-3 shrink-0" />
                                 ) : null}
@@ -1576,7 +1765,7 @@ export function App() {
                                 }}
                               >
                                 <VscAdd className="size-3 shrink-0" />
-                                <span>Crear worktree</span>
+                                <span>Create worktree</span>
                               </button>
                             </div>
                           ) : null}
@@ -1589,8 +1778,8 @@ export function App() {
                           variant="ghost"
                           className="size-5 shrink-0 rounded opacity-0 group-hover:opacity-100"
                           onClick={() => group.project && void handleDeleteProject(group.project)}
-                          aria-label={`Eliminar proyecto ${group.project.name}`}
-                          title="Eliminar proyecto"
+                          aria-label={`Remove project ${group.project.name}`}
+                          title="Remove project"
                         >
                           <VscTrash className="size-3.5" />
                         </Button>
@@ -1602,8 +1791,8 @@ export function App() {
                           variant="ghost"
                           className="size-5 shrink-0 rounded opacity-0 group-hover:opacity-100"
                           onClick={() => handleDeleteOrphanTabs()}
-                          aria-label="Eliminar agentes huerfanos"
-                          title="Eliminar agentes huerfanos"
+                          aria-label="Remove orphan agents"
+                          title="Remove orphan agents"
                         >
                           <VscTrash className="size-3.5" />
                         </Button>
@@ -1650,8 +1839,8 @@ export function App() {
                                 projectPath: group.project?.rootPath ?? null
                               })
                             }
-                            aria-label="Nuevo agente"
-                            title="Nuevo agente"
+                            aria-label="New agent"
+                            title="New agent"
                           >
                             <VscAdd className="size-3.5" />
                           </Button>
@@ -1669,8 +1858,8 @@ export function App() {
                                 variant="ghost"
                                 className="size-5 shrink-0 rounded text-muted hover:text-destructive"
                                 onClick={() => group.project && void handleDeleteWorktree(wsData, group.project.rootPath)}
-                                aria-label={`Borrar worktree ${wt.label}`}
-                                title="Borrar worktree"
+                                aria-label={`Delete worktree ${wt.label}`}
+                                title="Delete worktree"
                               >
                                 <VscTrash className="size-3.5" />
                               </Button>
@@ -1843,6 +2032,16 @@ export function App() {
             selectedFilePath={selectedFilePath}
             onSelectFile={handleSelectFile}
           />
+          <GitPanel
+            collapsed={gitCollapsed}
+            entries={selectedGitStatusQuery.data ?? []}
+            selectedFilePath={selectedGitFilePath}
+            projectName={activeProject?.name ?? null}
+            workspaceLabel={selectedWorkspaceLabel}
+            onToggleCollapsed={() => setGitCollapsed((c) => !c)}
+            onRefresh={() => queryClient.invalidateQueries({ queryKey: ['files', 'git-status', selectedWorkspacePath] })}
+            onSelectFile={handleSelectGitFile}
+          />
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col bg-surface">
@@ -1905,7 +2104,7 @@ export function App() {
                       </span>
                     ) : null}
                     <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-                      {tab.kind === 'editor' ? (
+                      {tab.kind === 'editor' || tab.kind === 'git-diff' ? (
                         <VscFile className="size-3.5" />
                       ) : isAgent ? (
                         isClaude ? (
@@ -1941,14 +2140,14 @@ export function App() {
                       ) : null}
                     </span>
                     <span className="truncate">
-                      {tab.kind === 'editor'
+                      {tab.kind === 'editor' || tab.kind === 'git-diff'
                         ? tab.title
                         : isAgent
                         ? (agentInfo?.name ?? agentPrompt ?? (isOpenCode ? 'OpenCode' : isCodex ? 'Codex' : 'Claude'))
                         : (selectedWorkspace?.branch ?? selectedWorkspace?.name ?? 'Terminal')}
                     </span>
                     {editorDirty ? (
-                      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" title="Cambios sin guardar" />
+                      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" title="Unsaved changes" />
                     ) : null}
                     {currentTabs.length > 1 ? (
                       <span
@@ -2024,7 +2223,7 @@ export function App() {
                           handleSessionCreated(tab.id, sessionId, pid, tmux)
                         }
                       />
-                    ) : (
+                    ) : tab.kind === 'editor' ? (
                       <FileEditor
                         filePath={tab.filePath}
                         value={editorDocuments[tab.filePath]?.value ?? ''}
@@ -2037,13 +2236,24 @@ export function App() {
                         onReload={() => handleReloadEditor(tab.workspacePath, tab.filePath)}
                         onClose={() => handleCloseTab(tab.id)}
                       />
+                    ) : (
+                      <GitDiffEditor
+                        filePath={tab.filePath}
+                        status={diffDocuments[tab.filePath]?.status ?? 'modified'}
+                        originalValue={diffDocuments[tab.filePath]?.originalValue ?? ''}
+                        modifiedValue={diffDocuments[tab.filePath]?.modifiedValue ?? ''}
+                        isLoading={diffDocuments[tab.filePath]?.isLoading ?? true}
+                        errorMessage={diffDocuments[tab.filePath]?.errorMessage ?? null}
+                        onReload={() => handleReloadDiff(tab.workspacePath, tab.filePath)}
+                        onClose={() => handleCloseTab(tab.id)}
+                      />
                     )}
                   </div>
                 ))}
               </div>
             ) : (
               <div className="flex h-full items-center justify-center rounded-md border border-dashed text-sm text-muted">
-                Open folder para empezar.
+                Open a folder to get started.
               </div>
             )}
           </div>
@@ -2059,6 +2269,17 @@ export function App() {
       ) : null}
       {commandPaletteOpen ? (
         <CommandPalette commands={commands} onClose={() => setCommandPaletteOpen(false)} />
+      ) : null}
+      {quickOpenOpen ? (
+        <CommandPalette
+          commands={quickOpenCommands}
+          filter={quickOpenFilter}
+          placeholder="Search by name or regex..."
+          emptyText={
+            quickOpenFilesQuery.isPending ? 'Indexing files…' : 'No files found'
+          }
+          onClose={() => setQuickOpenOpen(false)}
+        />
       ) : null}
     </div>
   )

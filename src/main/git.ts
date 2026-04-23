@@ -190,7 +190,7 @@ const resolvePrimaryBranch = async (repoPath: string) => {
   }
 
   throw new Error(
-    'No pude detectar la rama principal. Probe con HEAD del remoto, main y master.'
+    'Could not detect the primary branch. Tried remote HEAD, main, and master.'
   )
 }
 
@@ -200,13 +200,13 @@ export const createWorktree = async (
   input: CreateWorktreeInput
 ) => {
   if (!repoPath || !worktreeRoot) {
-    throw new Error('La creacion de worktrees solo esta disponible en repositorios Git.')
+    throw new Error('Creating worktrees is only available in Git repositories.')
   }
 
   const branchName = input.name.trim()
 
   if (!branchName) {
-    throw new Error('Necesito un nombre de branch para crear el worktree.')
+    throw new Error('A branch name is required to create the worktree.')
   }
 
   const targetPath = path.join(worktreeRoot, branchName)
@@ -218,7 +218,7 @@ export const createWorktree = async (
   const created = worktrees.find((worktree) => path.resolve(worktree.path) === path.resolve(targetPath))
 
   if (!created) {
-    throw new Error('El worktree se creo, pero no aparecio en el listado.')
+    throw new Error('The worktree was created but did not appear in the listing.')
   }
 
   return created
@@ -229,14 +229,14 @@ export const removeWorktree = async (
   worktreePath: string
 ): Promise<DeleteWorktreeResult> => {
   if (!repoPath) {
-    throw new Error('No hay worktrees Git que borrar en modo carpeta.')
+    throw new Error('No Git worktrees to delete in folder mode.')
   }
 
   const normalizedRepoPath = path.resolve(repoPath)
   const normalizedWorktreePath = path.resolve(worktreePath)
 
   if (normalizedRepoPath === normalizedWorktreePath) {
-    throw new Error('No se puede borrar el workspace principal.')
+    throw new Error('Cannot delete the main workspace.')
   }
 
   const worktrees = await listWorkspaceItems(repoPath, repoPath)
@@ -245,7 +245,7 @@ export const removeWorktree = async (
   )
 
   if (!targetWorktree || targetWorktree.kind !== 'worktree') {
-    throw new Error('No encontre ese worktree en el repositorio activo.')
+    throw new Error('Could not find that worktree in the active repository.')
   }
 
   await runGit(repoPath, ['worktree', 'remove', '--force', normalizedWorktreePath])
@@ -257,8 +257,8 @@ export const removeWorktree = async (
     try {
       await runGit(repoPath, ['branch', '-D', targetWorktree.branch])
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No pude borrar la rama local.'
-      warning = `El worktree se borro, pero no pude borrar la rama local ${targetWorktree.branch}: ${message}`
+      const message = error instanceof Error ? error.message : 'Could not delete the local branch.'
+      warning = `The worktree was deleted, but could not delete the local branch ${targetWorktree.branch}: ${message}`
     }
   }
 
@@ -273,7 +273,7 @@ export const checkoutMainWorkspace = async (
   repoPath: string | null
 ): Promise<CheckoutMainResult> => {
   if (!repoPath) {
-    throw new Error('El checkout de la rama principal solo esta disponible en repositorios Git.')
+    throw new Error('Checking out the primary branch is only available in Git repositories.')
   }
 
   const [{ branch, remote }, localBranches] = await Promise.all([
@@ -286,7 +286,7 @@ export const checkoutMainWorkspace = async (
   } else if (remote) {
     await runGit(repoPath, ['checkout', '-b', branch, '--track', `${remote}/${branch}`])
   } else {
-    throw new Error(`No encontre una rama local ${branch} para hacer checkout.`)
+    throw new Error(`Could not find a local branch ${branch} to check out.`)
   }
 
   return { branch }

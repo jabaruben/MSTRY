@@ -22,19 +22,19 @@ export function FileTree({
   const rootQuery = useDirectory(workspacePath, '', true)
 
   if (rootQuery.isPending) {
-    return <div className="px-3 py-2 text-xs text-muted">Cargando…</div>
+    return <div className="px-3 py-2 text-xs text-muted">Loading…</div>
   }
 
   if (rootQuery.isError) {
     return (
       <div className="px-3 py-2 text-xs text-error">
-        {rootQuery.error instanceof Error ? rootQuery.error.message : 'Error al listar archivos.'}
+        {rootQuery.error instanceof Error ? rootQuery.error.message : 'Failed to list files.'}
       </div>
     )
   }
 
   if (!rootQuery.data || rootQuery.data.length === 0) {
-    return <div className="px-3 py-2 text-xs text-muted">(vacio)</div>
+    return <div className="px-3 py-2 text-xs text-muted">(empty)</div>
   }
 
   return (
