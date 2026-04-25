@@ -1,63 +1,92 @@
 @import "tailwindcss";
 
 :root {
-  /* Surfaces */
   --bg: #ffffff;
-  --sidebar-bg: #f5f5f6;
+  --sidebar-bg: #f3f4f6;
   --surface-bg: #ffffff;
-  --terminal-bg: #f5f5f6;
-
-  /* Text */
-  --fg: #1c1c1c;
-  --fg-secondary: #52525b;
-  --fg-muted: #71717a;
-  --fg-icon: #71717a;
-
-  /* Borders */
-  --sep: rgba(0, 0, 0, 0.1);
-
-  /* Interactive */
-  --item-active: rgba(0, 0, 0, 0.06);
+  --terminal-bg: #1e1e1e;
+  --fg: #1f2937;
+  --fg-secondary: #4b5563;
+  --fg-muted: #9ca3af;
+  --fg-icon: #6b7280;
+  --sep: #e5e7eb;
+  --item-active: rgba(0, 0, 0, 0.08);
   --item-hover: rgba(0, 0, 0, 0.04);
   --overlay-color: rgba(0, 0, 0, 0.04);
   --overlay-hover-color: rgba(0, 0, 0, 0.06);
+  --error-fg: #dc2626;
+  --focus-ring-color: rgba(59, 130, 246, 0.4);
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --terminal-glow: rgba(59, 130, 246, 0.1);
+}
 
-  /* Error */
-  --error-fg: #b91c1c;
+:root[data-theme="dark"] {
+  --bg: #0d0d0d;
+  --sidebar-bg: #1e1e1e;
+  --surface-bg: #252526;
+  --terminal-bg: #1e1e1e;
+  --fg: #cccccc;
+  --fg-secondary: #d4d4d4;
+  --fg-muted: #808080;
+  --fg-icon: #a1a1aa;
+  --sep: #3c3c3c;
+  --item-active: rgba(255, 255, 255, 0.1);
+  --item-hover: rgba(255, 255, 255, 0.06);
+  --overlay-color: rgba(255, 255, 255, 0.04);
+  --overlay-hover-color: rgba(255, 255, 255, 0.08);
+  --error-fg: #f87171;
+  --focus-ring-color: rgba(59, 130, 246, 0.5);
+  --accent: #0078d4;
+  --accent-hover: #1e8ad4;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --terminal-glow: rgba(0, 120, 212, 0.15);
+}
 
-  /* Focus */
-  --focus-ring-color: rgba(0, 0, 0, 0.15);
-
-  /* Misc */
-  --inset-glow: rgba(0, 0, 0, 0.03);
-  --scrollbar-thumb: rgba(0, 0, 0, 0.14);
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --sidebar-bg: #f3f4f6;
+  --surface-bg: #ffffff;
+  --terminal-bg: #1e1e1e;
+  --fg: #1f2937;
+  --fg-secondary: #4b5563;
+  --fg-muted: #9ca3af;
+  --fg-icon: #6b7280;
+  --sep: #e5e7eb;
+  --item-active: rgba(0, 0, 0, 0.08);
+  --item-hover: rgba(0, 0, 0, 0.04);
+  --overlay-color: rgba(0, 0, 0, 0.04);
+  --overlay-hover-color: rgba(0, 0, 0, 0.06);
+  --error-fg: #dc2626;
+  --focus-ring-color: rgba(59, 130, 246, 0.4);
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --terminal-glow: rgba(37, 99, 235, 0.1);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111111;
-    --sidebar-bg: #151515;
-    --surface-bg: #1e1e1e;
-    --terminal-bg: #181818;
-
-    --fg: #d4d4d4;
-    --fg-secondary: #d4d4d8;
-    --fg-muted: #71717a;
+  :root:not([data-theme]) {
+    --bg: #0d0d0d;
+    --sidebar-bg: #1e1e1e;
+    --surface-bg: #252526;
+    --terminal-bg: #1e1e1e;
+    --fg: #cccccc;
+    --fg-secondary: #d4d4d4;
+    --fg-muted: #808080;
     --fg-icon: #a1a1aa;
-
-    --sep: rgba(255, 255, 255, 0.08);
-
-    --item-active: rgba(255, 255, 255, 0.08);
-    --item-hover: rgba(255, 255, 255, 0.04);
+    --sep: #3c3c3c;
+    --item-active: rgba(255, 255, 255, 0.1);
+    --item-hover: rgba(255, 255, 255, 0.06);
     --overlay-color: rgba(255, 255, 255, 0.04);
-    --overlay-hover-color: rgba(255, 255, 255, 0.06);
-
-    --error-fg: #fecaca;
-
-    --focus-ring-color: rgba(255, 255, 255, 0.2);
-
-    --inset-glow: rgba(255, 255, 255, 0.03);
-    --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+    --overlay-hover-color: rgba(255, 255, 255, 0.08);
+    --error-fg: #f87171;
+    --focus-ring-color: rgba(59, 130, 246, 0.5);
+    --accent: #0078d4;
+    --accent-hover: #1e8ad4;
+    --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --terminal-glow: rgba(0, 120, 212, 0.15);
   }
 }
 
@@ -77,9 +106,10 @@
   --color-overlay-hover: var(--overlay-hover-color);
   --color-error: var(--error-fg);
   --color-focus-ring: var(--focus-ring-color);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
 
   --font-sans:
-    "SF Pro Display",
     "Inter",
     "Segoe UI",
     ui-sans-serif,
@@ -88,8 +118,9 @@
     BlinkMacSystemFont,
     sans-serif;
   --font-mono:
-    "SF Mono",
     "JetBrains Mono",
+    "SF Mono",
+    "Cascadia Code",
     ui-monospace,
     SFMono-Regular,
     Menlo,
@@ -121,6 +152,11 @@
   code {
     @apply font-mono;
   }
+
+  ::selection {
+    background-color: var(--accent);
+    color: white;
+  }
 }
 
 .drag-region {
@@ -146,6 +182,28 @@
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
+.xterm:focus-within {
+  box-shadow: inset 0 0 30px var(--terminal-glow);
+}
+
+.btn-primary {
+  background-color: var(--accent);
+  color: white;
+  transition: background-color 150ms ease;
+}
+
+.btn-primary:hover {
+  background-color: var(--accent-hover);
+}
+
+.btn-ghost {
+  transition: background-color 150ms ease;
+}
+
+.btn-ghost:hover {
+  background-color: var(--item-hover);
+}
+
 /* Settings drawer */
 @keyframes drawer-slide-in {
   from { transform: translateX(100%); }
@@ -160,4 +218,35 @@
 }
 .drawer-panel {
   animation: drawer-slide-in 200ms ease-out;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--fg-muted);
+}
+
+/* Focus states */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }

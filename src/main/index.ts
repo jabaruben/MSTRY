@@ -193,12 +193,15 @@ const registerIpc = () => {
 }
 
 function fixPath(): void {
-  if (process.platform !== 'darwin') return
-  const extraPaths = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+  if (process.platform === 'win32') return
+  const extraPaths = process.platform === 'darwin'
+    ? ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+    : ['/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin', '/snap/bin']
   const current = process.env.PATH ?? ''
-  const missing = extraPaths.filter((p) => !current.split(':').includes(p))
+  const separator = process.platform === 'win32' ? ';' : ':'
+  const missing = extraPaths.filter((p) => !current.split(separator).includes(p))
   if (missing.length > 0) {
-    process.env.PATH = `${current}:${missing.join(':')}`
+    process.env.PATH = `${current}${separator}${missing.join(separator)}`
   }
 }
 

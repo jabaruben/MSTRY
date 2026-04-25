@@ -214,6 +214,12 @@ function SortableTabButton({
 }
 
 export function App() {
+  useEffect(() => {
+    const stored = localStorage.getItem('mstry-theme')
+    if (stored === 'light' || stored === 'dark') {
+      document.documentElement.setAttribute('data-theme', stored)
+    }
+  }, [])
   const queryClient = useQueryClient()
   const { selectedWorkspacePath, setSelectedWorkspacePath } = useSelectedWorkspace()
   const [tabs, setTabs] = useState<TerminalTab[]>([])

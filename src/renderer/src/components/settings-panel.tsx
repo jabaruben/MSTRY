@@ -22,7 +22,30 @@ const CODING_TOOL_PLACEHOLDERS = [
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'No se pudo guardar la configuracion.'
 
+const THEME_OPTIONS = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' }
+] as const
+
+type ThemeValue = (typeof THEME_OPTIONS)[number]['value']
+
+const getStoredTheme = (): ThemeValue => {
+  const stored = localStorage.getItem('mstry-theme')
+  if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
+  return 'system'
+}
+
+const applyTheme = (theme: ThemeValue) => {
+  if (theme === 'system') {
+    document.documentElement.removeAttribute('data-theme')
+  } else {
+    document.documentElement.setAttribute('data-theme', theme)
+  }
+}
+
 export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onConfigUpdated, onClose }: SettingsPanelProps) {
+  const [theme, setTheme] = useState<ThemeValue>(getStoredTheme)
   const [hooksEnabled, setHooksEnabled] = useState<boolean | null>(null)
   const [codexHooksEnabled, setCodexHooksEnabled] = useState<boolean | null>(null)
   const [geminiHooksEnabled, setGeminiHooksEnabled] = useState<boolean | null>(null)
@@ -45,6 +68,11 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
     void bridge.cli.isInstalled().then(setCliInstalled)
     void bridge.tools.checkAll().then(setCodingTools)
   }, [])
+
+  useEffect(() => {
+    applyTheme(theme)
+    localStorage.setItem('mstry-theme', theme)
+  }, [theme])
 
   useEffect(() => {
     setDefaultTabCommand(initialDefaultTabCommand)
@@ -204,6 +232,34 @@ export function SettingsPanel({ defaultTabCommand: initialDefaultTabCommand, onC
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
+          <div className="mb-5 border-b pb-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Theme</p>
+                <p className="mt-1 text-xs text-muted">
+                  Choose your preferred color scheme
+                </p>
+              </div>
+              <div className="flex gap-1 rounded-lg bg-overlay p-1">
+                {THEME_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setTheme(option.value)}
+                    className={cn(
+                      'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                      theme === option.value
+                        ? 'bg-item-active text-foreground'
+                        : 'text-muted hover:text-secondary'
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <div>
             <div className="min-w-0">
               <p className="text-sm font-medium">Comando por defecto en tabs nuevas</p>
